@@ -1,0 +1,38 @@
+# Environment variables - NEVER commit these
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+.Python
+
+# HAR files (can be large)
+*.har
+runs/
+
+# Node
+node_modules/
+.next/
+out/
+.turbo/
+
+# Convex
+.convex/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.cursor/
+.vscode/
+*.swp
