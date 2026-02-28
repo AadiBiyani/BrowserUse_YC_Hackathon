@@ -1,0 +1,46 @@
+tasks:
+  - task_id: wikipedia_gdp
+    display_name: "Wikipedia Data Extraction"
+    url: "https://en.wikipedia.org/wiki/List_of_countries_by_GDP_(nominal)"
+    goal: >
+      Go to the Wikipedia page for List of countries by GDP (nominal).
+      Find the GDP value for the United States from the IMF estimates column.
+      Return only the numeric value in billions USD.
+    success_conditions:
+      - "response contains a numeric value"
+      - "response contains 'trillion' or a number greater than 1000"
+    difficulty: easy
+    category: data_extraction
+    notes: "Stable page, no auth, good for baseline testing"
+
+  - task_id: hackernews_top_post
+    display_name: "Hacker News Navigation"
+    url: "https://news.ycombinator.com"
+    goal: >
+      Go to Hacker News. Find the #1 ranked post on the front page.
+      Click through to the actual article (not the comments).
+      Return the title of the article as it appears on the destination page.
+    success_conditions:
+      - "response contains a non-empty title string"
+      - "response does not contain 'news.ycombinator.com'"
+    difficulty: medium
+    category: multi_step_navigation
+    notes: "Tests multi-step reasoning and link following"
+
+  - task_id: form_submission
+    display_name: "Form Fill & Submit"
+    url: "https://httpbin.org/forms/post"
+    goal: >
+      Go to the form at httpbin.org/forms/post.
+      Fill in the customer name field with 'ReplayBench Test',
+      the telephone field with '555-1234',
+      and the email field with 'test@replaybench.dev'.
+      Select 'Medium' for pizza size.
+      Submit the form and return the response body confirming submission.
+    success_conditions:
+      - "response contains 'ReplayBench Test'"
+      - "response contains '555-1234'"
+      - "response contains 'test@replaybench.dev'"
+    difficulty: medium
+    category: form_interaction
+    notes: "httpbin is stable and controlled -- ideal for determinism testing"
