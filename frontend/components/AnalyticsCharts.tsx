@@ -47,6 +47,7 @@ interface MetricBarChartProps {
 
 export function MetricBarChart({ data, title, unit = "", formatValue }: MetricBarChartProps) {
   const fmt = formatValue ?? ((v: number) => `${v.toFixed(2)}${unit}`);
+  const fmtOrDash = (v: number | undefined) => (typeof v === "number" ? fmt(v) : "-");
 
   return (
     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
@@ -68,7 +69,7 @@ export function MetricBarChart({ data, title, unit = "", formatValue }: MetricBa
             />
             <YAxis tick={{ fontSize: 11 }} className="text-slate-500 dark:text-slate-400" tickFormatter={(v) => fmt(v)} />
             <Tooltip
-              formatter={(value: number) => [fmt(value), "Value"]}
+              formatter={(value: number | undefined) => [fmtOrDash(value), "Value"]}
               contentStyle={{
                 backgroundColor: "var(--tooltip-bg, #fff)",
                 border: "1px solid var(--tooltip-border, #e2e8f0)",
@@ -104,6 +105,7 @@ interface GroupedBarChartProps {
 
 export function GroupedBarChart({ data, models, title, unit = "", formatValue }: GroupedBarChartProps) {
   const fmt = formatValue ?? ((v: number) => `${v.toFixed(2)}${unit}`);
+  const fmtOrDash = (v: number | undefined) => (typeof v === "number" ? fmt(v) : "-");
 
   return (
     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5">
@@ -117,7 +119,7 @@ export function GroupedBarChart({ data, models, title, unit = "", formatValue }:
             <XAxis dataKey="experiment" tick={{ fontSize: 11 }} className="text-slate-500 dark:text-slate-400" />
             <YAxis tick={{ fontSize: 11 }} className="text-slate-500 dark:text-slate-400" tickFormatter={(v) => fmt(v)} />
             <Tooltip
-              formatter={(value: number, name: string) => [fmt(value), name]}
+              formatter={(value: number | undefined, name: string | undefined) => [fmtOrDash(value), name ?? "Value"]}
               contentStyle={{
                 backgroundColor: "var(--tooltip-bg, #fff)",
                 border: "1px solid var(--tooltip-border, #e2e8f0)",
@@ -192,10 +194,12 @@ export function RunScatterPlot({ data, title = "Cost vs Latency (per run)" }: Ru
             />
             <ZAxis range={[200, 200]} />
             <Tooltip
-              formatter={(value: number, name: string) => {
-                if (name === "Cost") return [`$${value.toFixed(4)}`, name];
-                if (name === "Latency") return [`${value.toFixed(1)}s`, name];
-                return [value, name];
+              formatter={(value: number | undefined, name: string | undefined) => {
+                const label = name ?? "Value";
+                if (typeof value !== "number") return ["-", label];
+                if (label === "Cost") return [`$${value.toFixed(4)}`, label];
+                if (label === "Latency") return [`${value.toFixed(1)}s`, label];
+                return [value, label];
               }}
               contentStyle={{
                 backgroundColor: "var(--tooltip-bg, #fff)",
