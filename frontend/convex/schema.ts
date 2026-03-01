@@ -8,6 +8,8 @@ export default defineSchema({
     goal: v.string(),
     expected: v.optional(v.string()),
     compareMode: v.string(), // "contains" | "exact" | "regex"
+    taskMode: v.optional(v.string()), // "simple" | "advanced"
+    taskPayload: v.optional(v.string()), // JSON payload for advanced task configs
     createdAt: v.number(),
   }),
 

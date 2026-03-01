@@ -15,7 +15,7 @@ os.environ.setdefault("ANONYMIZED_TELEMETRY", "false")
 os.environ.setdefault("BROWSER_USE_SETUP_LOGGING", "false")
 
 from browser_use.agent.views import ActionResult
-from browser_use.agent.prompts import AgentMessagePrompt, SystemPrompt
+from browser_use.agent.prompts import AgentMessagePrompt
 from browser_use.browser import BrowserSession
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
@@ -60,8 +60,7 @@ class Runtime(BaseModel):
 
 RUNTIME: Runtime | None = None
 ALLOWED_TOOLS: set[str] | None = None  # None = all tools; set = allowlist
-BROWSER_USE_SYSTEM_PROMPT = SystemPrompt(max_actions_per_step=3).get_system_message().content
-BROWSER_USE_HUD_OUTPUT = """ 
+BROWSER_USE_HUD_OUTPUT = """
 This HUD harness uses function/tool-calling instead of Browser Use JSON envelopes.
 For every step:
 1) Decide your next browser action(s).
@@ -73,14 +72,8 @@ Do NOT output an "action" JSON object or JSON wrapper keys like:
 
 When finished, return a normal plain-text final answer to the user.
 There is no `done` tool in this harness.
- """
-BROWSER_USE_HUD_PROMPT = re.sub(
-    r".*? ",
-    BROWSER_USE_HUD_OUTPUT,
-    BROWSER_USE_SYSTEM_PROMPT,
-    count=1,
-    flags=re.DOTALL,
-)
+""".strip()
+BROWSER_USE_HUD_PROMPT = BROWSER_USE_HUD_OUTPUT
 
 
 def extraction_llm() -> BaseChatModel | None:
@@ -153,7 +146,7 @@ async def call_action(action_name: str, action_args: dict[str, Any]) -> dict[str
         return {"ok": False, "action": action_name, "error": str(e)}
 
 
-async def start_session(start_url: str = "") -> dict[str, Any]:
+async def start_session(start_url: str = "", allowed_domains: list[str] | None = None) -> dict[str, Any]:
     global RUNTIME
     await stop_session(force=True)
 
@@ -164,6 +157,12 @@ async def start_session(start_url: str = "") -> dict[str, Any]:
     downloads_dir.mkdir(parents=True, exist_ok=True)
     files_dir.mkdir(parents=True, exist_ok=True)
 
+    effective_allowed_domains = (
+        [domain.strip() for domain in allowed_domains if isinstance(domain, str) and domain.strip()]
+        if allowed_domains is not None
+        else ALLOWED_DOMAINS
+    )
+
     session = BrowserSession(
         id=SESSION_NAME,
         is_local=True,
@@ -172,7 +171,7 @@ async def start_session(start_url: str = "") -> dict[str, Any]:
         user_data_dir=str(profile_dir),
         downloads_path=str(downloads_dir),
         executable_path=EXECUTABLE_PATH or None,
-        allowed_domains=ALLOWED_DOMAINS or None,
+        allowed_domains=effective_allowed_domains or None,
         keep_alive=True,
     )
     try:
@@ -246,6 +245,145 @@ def compare_answers(actual: Any, expected: Any, mode: str = "exact") -> float:
         except re.error:
             return 0.0
     return 0.0
+
+
+def _json_type_matches(value: Any, expected_type: str) -> bool:
+    if expected_type == "object":
+        return isinstance(value, dict)
+    if expected_type == "array":
+        return isinstance(value, list)
+    if expected_type == "string":
+        return isinstance(value, str)
+    if expected_type == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if expected_type == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected_type == "boolean":
+        return isinstance(value, bool)
+    if expected_type == "null":
+        return value is None
+    return True
+
+
+def _validate_output_schema_value(value: Any, schema: dict[str, Any], path: str = "$") -> list[str]:
+    errors: list[str] = []
+    expected_type = schema.get("type")
+    if isinstance(expected_type, list):
+        if not any(_json_type_matches(value, str(t)) for t in expected_type):
+            errors.append(f"{path}: expected one of types {expected_type}")
+            return errors
+    elif isinstance(expected_type, str):
+        if not _json_type_matches(value, expected_type):
+            errors.append(f"{path}: expected type '{expected_type}'")
+            return errors
+
+    if "enum" in schema:
+        enum_values = schema.get("enum")
+        if isinstance(enum_values, list) and value not in enum_values:
+            errors.append(f"{path}: value not in enum")
+
+    if isinstance(value, str):
+        min_len = schema.get("minLength")
+        max_len = schema.get("maxLength")
+        pattern = schema.get("pattern")
+        if isinstance(min_len, int) and len(value) < min_len:
+            errors.append(f"{path}: length < minLength ({min_len})")
+        if isinstance(max_len, int) and len(value) > max_len:
+            errors.append(f"{path}: length > maxLength ({max_len})")
+        if isinstance(pattern, str):
+            try:
+                if not re.search(pattern, value):
+                    errors.append(f"{path}: pattern mismatch")
+            except re.error:
+                errors.append(f"{path}: invalid regex pattern in schema")
+
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        minimum = schema.get("minimum")
+        maximum = schema.get("maximum")
+        if isinstance(minimum, (int, float)) and value < minimum:
+            errors.append(f"{path}: value < minimum ({minimum})")
+        if isinstance(maximum, (int, float)) and value > maximum:
+            errors.append(f"{path}: value > maximum ({maximum})")
+
+    if isinstance(value, dict):
+        required = schema.get("required")
+        if isinstance(required, list):
+            for key in required:
+                if isinstance(key, str) and key not in value:
+                    errors.append(f"{path}.{key}: missing required property")
+        properties = schema.get("properties")
+        if isinstance(properties, dict):
+            for key, subschema in properties.items():
+                if key in value and isinstance(subschema, dict):
+                    errors.extend(
+                        _validate_output_schema_value(value[key], subschema, path=f"{path}.{key}")
+                    )
+
+    if isinstance(value, list):
+        min_items = schema.get("minItems")
+        max_items = schema.get("maxItems")
+        if isinstance(min_items, int) and len(value) < min_items:
+            errors.append(f"{path}: item count < minItems ({min_items})")
+        if isinstance(max_items, int) and len(value) > max_items:
+            errors.append(f"{path}: item count > maxItems ({max_items})")
+        item_schema = schema.get("items")
+        if isinstance(item_schema, dict):
+            for idx, item in enumerate(value):
+                errors.extend(
+                    _validate_output_schema_value(item, item_schema, path=f"{path}[{idx}]")
+                )
+
+    return errors
+
+
+def _structured_output_score(agent_answer: str, output_schema: dict[str, Any]) -> tuple[float, list[str]]:
+    try:
+        parsed = json.loads((agent_answer or "").strip())
+    except json.JSONDecodeError:
+        return 0.0, ["Output is not valid JSON"]
+
+    if not isinstance(output_schema, dict):
+        return 0.0, ["output_schema must be a JSON object"]
+
+    errors = _validate_output_schema_value(parsed, output_schema)
+    return (1.0, []) if not errors else (0.0, errors[:8])
+
+
+async def _judge_answer_score(
+    prompt: str,
+    agent_answer: str,
+    *,
+    rubric: str | None = None,
+    output_schema: dict[str, Any] | None = None,
+) -> float | None:
+    judge_llm = extraction_llm()
+    if judge_llm is None:
+        return None
+
+    judge_prompt = (
+        "You are a strict evaluator. Score the assistant answer from 0.0 to 1.0.\n"
+        "Return JSON only with keys: score (number), reason (string).\n\n"
+        f"Task:\n{prompt}\n\n"
+        f"Answer:\n{agent_answer}\n\n"
+    )
+    if output_schema is not None:
+        judge_prompt += f"Expected output schema:\n{json.dumps(output_schema, ensure_ascii=True)}\n\n"
+    if rubric:
+        judge_prompt += f"Rubric:\n{rubric}\n\n"
+
+    judge_prompt += "Remember: output valid JSON only."
+
+    try:
+        response = await judge_llm.ainvoke(judge_prompt)
+        content = response.content if hasattr(response, "content") else str(response)
+        text = content if isinstance(content, str) else json.dumps(content)
+        match = re.search(r"\{[\s\S]*\}", text)
+        payload = json.loads(match.group(0) if match else text)
+        score = float(payload.get("score"))
+        return max(0.0, min(1.0, score))
+    except Exception as e:
+        logger.warning("Judge scoring failed: %s", e)
+        return None
 
 
 def _to_int(value: Any) -> int | None:
@@ -453,13 +591,25 @@ async def _collect_final_state() -> dict[str, str]:
     return final_state
 
 
-async def render_harness_prompt(task: str) -> str:
+async def render_harness_prompt(
+    task: str,
+    *,
+    output_schema: dict[str, Any] | None = None,
+    system_prompt_extension: str | None = None,
+) -> str:
     runtime = RUNTIME
     if runtime is None:
+        schema_block = ""
+        if output_schema is not None:
+            schema_block = (
+                "\n\nReturn strictly valid JSON matching this schema:\n"
+                f"{json.dumps(output_schema, ensure_ascii=True, indent=2)}"
+            )
+        extension_block = f"\n\n{system_prompt_extension.strip()}" if system_prompt_extension else ""
         return (
             f"{BROWSER_USE_HUD_PROMPT}\n\n"
             f" Browser runtime not available. \n"
-            f"USER TASK:\n{task}"
+            f"USER TASK:\n{task}{schema_block}{extension_block}"
         )
     state = await runtime.session.get_browser_state_summary(
         include_screenshot=False,
@@ -474,7 +624,98 @@ async def render_harness_prompt(task: str) -> str:
     browser_use_input_text = (
         browser_use_input.content if isinstance(browser_use_input.content, str) else str(browser_use_input.content)
     )
-    return f"{BROWSER_USE_HUD_PROMPT}\n\n{browser_use_input_text}"
+    schema_block = ""
+    if output_schema is not None:
+        schema_block = (
+            "\n\nReturn strictly valid JSON matching this schema:\n"
+            f"{json.dumps(output_schema, ensure_ascii=True, indent=2)}"
+        )
+    extension_block = f"\n\n{system_prompt_extension.strip()}" if system_prompt_extension else ""
+    return f"{BROWSER_USE_HUD_PROMPT}\n\n{browser_use_input_text}{schema_block}{extension_block}"
+
+
+@env.scenario("task")
+async def task(
+    task: str,
+    start_url: str = "",
+    expected: Any | None = None,
+    compare_mode: str = "contains",
+    criteria: list[dict[str, Any]] | None = None,
+    output_schema: dict[str, Any] | None = None,
+    judge: bool = False,
+    judge_rubric: str | None = None,
+    system_prompt_extension: str | None = None,
+    success_threshold: float | None = None,
+    allowed_tools: list[str] | None = None,
+    allowed_domains: list[str] | None = None,
+    max_steps: int | None = None,
+    timeout_sec: int | None = None,
+    maxSteps: int | None = None,
+    timeoutSec: int | None = None,
+) -> Any:
+    """Browser task with optional schema validation and judge scoring."""
+    global ALLOWED_TOOLS
+    ALLOWED_TOOLS = set(allowed_tools) if allowed_tools is not None else None
+    resolved_max_steps, resolved_timeout = _resolve_limits(max_steps, timeout_sec, maxSteps, timeoutSec)
+
+    setup = await start_session(start_url=start_url, allowed_domains=allowed_domains)
+    if not setup.get("ok"):
+        ALLOWED_TOOLS = None
+        _ = yield f"Browser session setup failed: {setup.get('error')}\nRespond with a brief failure message."
+        yield 0.0
+        return
+
+    agent_answer = ""
+    final_state: dict[str, str] = {"url": "", "title": "", "history_text": ""}
+    step_count = 1
+    started_at = time.monotonic()
+    elapsed_sec = 0.0
+    try:
+        agent_answer = yield await render_harness_prompt(
+            task,
+            output_schema=output_schema,
+            system_prompt_extension=system_prompt_extension,
+        )
+        elapsed_sec = max(0.0, time.monotonic() - started_at)
+        final_state = await _collect_final_state()
+        step_count = _estimate_steps_from_state(final_state, fallback=1)
+    finally:
+        ALLOWED_TOOLS = None
+        await stop_session(force=True)
+
+    component_scores: list[float] = []
+    if isinstance(criteria, list) and criteria:
+        component_scores.append(_evaluate_weighted_criteria(criteria, agent_answer, final_state))
+    elif expected is not None:
+        component_scores.append(compare_answers(agent_answer, expected, compare_mode))
+
+    if output_schema is not None:
+        schema_score, schema_errors = _structured_output_score(agent_answer, output_schema)
+        if schema_errors:
+            logger.info("Structured output validation failed: %s", "; ".join(schema_errors))
+        component_scores.append(schema_score)
+
+    if judge:
+        judge_score = await _judge_answer_score(
+            task,
+            agent_answer,
+            rubric=judge_rubric,
+            output_schema=output_schema,
+        )
+        if judge_score is not None:
+            component_scores.append(judge_score)
+
+    reward = 1.0 if not component_scores else sum(component_scores) / len(component_scores)
+    reward = _apply_termination_controls(
+        reward=reward,
+        step_count=step_count,
+        elapsed_sec=elapsed_sec,
+        max_steps_limit=resolved_max_steps,
+        timeout_limit=resolved_timeout,
+    )
+    threshold = _resolve_success_threshold(success_threshold)
+    logger.debug("task reward=%.3f threshold=%.3f components=%s", reward, threshold, component_scores)
+    yield reward
 
 
 @env.scenario("answer")
@@ -486,6 +727,7 @@ async def answer(
     criteria: list[dict[str, Any]] | None = None,
     success_threshold: float | None = None,
     allowed_tools: list[str] | None = None,
+    allowed_domains: list[str] | None = None,
     max_steps: int | None = None,
     timeout_sec: int | None = None,
     maxSteps: int | None = None,
@@ -502,7 +744,7 @@ async def answer(
     ALLOWED_TOOLS = set(allowed_tools) if allowed_tools is not None else None
     resolved_max_steps, resolved_timeout = _resolve_limits(max_steps, timeout_sec, maxSteps, timeoutSec)
 
-    setup = await start_session(start_url=url)
+    setup = await start_session(start_url=url, allowed_domains=allowed_domains)
     if not setup.get("ok"):
         ALLOWED_TOOLS = None
         _ = yield f"Browser session setup failed: {setup.get('error')}\nRespond with a brief failure message."
@@ -548,6 +790,7 @@ async def multi_step(
     prompt: str,
     checkpoints: list[dict[str, Any]],
     allowed_tools: list[str] | None = None,
+    allowed_domains: list[str] | None = None,
     max_steps: int | None = None,
     timeout_sec: int | None = None,
     maxSteps: int | None = None,
@@ -577,7 +820,7 @@ async def multi_step(
         f"Checkpoints:\n" + ("\n".join(checkpoint_lines) if checkpoint_lines else "- Follow the task prompt.") + limits_text
     )
 
-    setup = await start_session(start_url=url)
+    setup = await start_session(start_url=url, allowed_domains=allowed_domains)
     if not setup.get("ok"):
         ALLOWED_TOOLS = None
         _ = yield f"Browser session setup failed: {setup.get('error')}\nRespond with a brief failure message."
@@ -616,6 +859,7 @@ async def branching_goal(
     prompt: str,
     branches: list[dict[str, Any]],
     allowed_tools: list[str] | None = None,
+    allowed_domains: list[str] | None = None,
     max_steps: int | None = None,
     timeout_sec: int | None = None,
     maxSteps: int | None = None,
@@ -651,7 +895,7 @@ async def branching_goal(
         + limits_text
     )
 
-    setup = await start_session(start_url=url)
+    setup = await start_session(start_url=url, allowed_domains=allowed_domains)
     if not setup.get("ok"):
         ALLOWED_TOOLS = None
         _ = yield f"Browser session setup failed: {setup.get('error')}\nRespond with a brief failure message."

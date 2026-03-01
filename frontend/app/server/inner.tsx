@@ -1,15 +1,14 @@
 "use client";
 
-import { Preloaded, useMutation, usePreloadedQuery } from "convex/react";
+import { Preloaded, usePreloadedQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 
 export default function Home({
   preloaded,
 }: {
-  preloaded: Preloaded<typeof api.myFunctions.listNumbers>;
+  preloaded: Preloaded<typeof api.tasks.list>;
 }) {
   const data = usePreloadedQuery(preloaded);
-  const addNumber = useMutation(api.myFunctions.addNumber);
   return (
     <>
       <div className="flex flex-col gap-4 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 p-6 rounded-xl shadow-md">
@@ -22,14 +21,6 @@ export default function Home({
           </pre>
         </code>
       </div>
-      <button
-        className="bg-slate-700 hover:bg-slate-800 dark:bg-slate-600 dark:hover:bg-slate-500 text-white px-6 py-3 rounded-lg mx-auto cursor-pointer transition-all duration-200 shadow-md hover:shadow-lg font-medium"
-        onClick={() => {
-          void addNumber({ value: Math.floor(Math.random() * 10) });
-        }}
-      >
-        Add a random number
-      </button>
     </>
   );
 }

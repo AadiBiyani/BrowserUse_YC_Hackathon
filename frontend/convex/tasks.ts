@@ -22,6 +22,8 @@ export const create = mutation({
     goal: v.string(),
     expected: v.optional(v.string()),
     compareMode: v.string(),
+    taskMode: v.optional(v.string()),
+    taskPayload: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("tasks", {

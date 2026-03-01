@@ -49,7 +49,7 @@ const TASK_MODES = [
   },
 ] as const;
 
-const SCENARIO_OPTIONS = ["answer", "multi_step", "branching_goal", "wiki-game"] as const;
+const SCENARIO_OPTIONS = ["answer", "task", "multi_step", "branching_goal", "wiki-game"] as const;
 
 type Step1 = {
   name: string;
@@ -171,7 +171,99 @@ type TaskRecord = {
   goal: string;
   expected?: string;
   compareMode: string;
+  taskMode?: string;
+  taskPayload?: string;
 };
+
+type AdvancedTaskPayload = {
+  scenario: string;
+  scenarioArgsText: string;
+  taskIdMeta?: string;
+  externalId?: string;
+  difficulty?: string;
+  category?: string;
+  successConditionsText?: string;
+  maxSteps?: string;
+  timeoutSec?: string;
+  maxAttempts?: string;
+  retryDelaySec?: string;
+  retryTransientOnly?: boolean;
+};
+
+function createDefaultStep1(name = "", taskMode: "simple" | "advanced" = "simple"): Step1 {
+  return {
+    name,
+    taskMode,
+    selectedTaskId: null,
+    taskUrl: "",
+    taskGoal: "",
+    expected: "",
+    compareMode: "contains",
+    scenario: "answer",
+    scenarioArgsText: JSON.stringify(
+      {
+        url: "",
+        prompt: "",
+        expected: "",
+        compare_mode: "contains",
+      },
+      null,
+      2
+    ),
+    taskIdMeta: "",
+    externalId: "",
+    difficulty: "",
+    category: "",
+    successConditionsText: "",
+    maxSteps: "",
+    timeoutSec: "",
+    maxAttempts: "",
+    retryDelaySec: "",
+    retryTransientOnly: true,
+  };
+}
+
+function applyTaskRecordToStep1(base: Step1, task: TaskRecord): Step1 {
+  const isAdvanced = task.taskMode === "advanced";
+  if (isAdvanced && task.taskPayload) {
+    try {
+      const payload = JSON.parse(task.taskPayload) as AdvancedTaskPayload;
+      return {
+        ...base,
+        selectedTaskId: task._id,
+        taskMode: "advanced",
+        taskUrl: task.url,
+        taskGoal: task.goal,
+        expected: task.expected ?? "",
+        compareMode: task.compareMode,
+        scenario: payload.scenario || "answer",
+        scenarioArgsText: payload.scenarioArgsText || base.scenarioArgsText,
+        taskIdMeta: payload.taskIdMeta || "",
+        externalId: payload.externalId || "",
+        difficulty: payload.difficulty || "",
+        category: payload.category || "",
+        successConditionsText: payload.successConditionsText || "",
+        maxSteps: payload.maxSteps || "",
+        timeoutSec: payload.timeoutSec || "",
+        maxAttempts: payload.maxAttempts || "",
+        retryDelaySec: payload.retryDelaySec || "",
+        retryTransientOnly: payload.retryTransientOnly ?? true,
+      };
+    } catch {
+      // Fall back to simple hydration if a legacy/invalid payload is encountered.
+    }
+  }
+
+  return {
+    ...base,
+    selectedTaskId: task._id,
+    taskMode: "simple",
+    taskUrl: task.url,
+    taskGoal: task.goal,
+    expected: task.expected ?? "",
+    compareMode: task.compareMode,
+  };
+}
 
 function parseOptionalInt(value: string): number | undefined {
   const trimmed = value.trim();
@@ -206,7 +298,7 @@ function Step1Form({
   tasks: TaskRecord[] | undefined;
 }) {
   const isSimpleMode = data.taskMode === "simple";
-  const isExisting = isSimpleMode && data.selectedTaskId !== null;
+  const isExisting = data.selectedTaskId !== null;
   const hasValidScenarioArgsJson = (() => {
     if (isSimpleMode) return true;
     try {
@@ -222,19 +314,12 @@ function Step1Form({
 
   function handleTaskSelect(taskId: string) {
     if (taskId === "__new__") {
-      onChange({ ...data, selectedTaskId: null, taskUrl: "", taskGoal: "", expected: "", compareMode: "contains" });
+      onChange({ ...createDefaultStep1(data.name, data.taskMode), selectedTaskId: null });
       return;
     }
     const task = tasks?.find((t) => t._id === taskId);
     if (!task) return;
-    onChange({
-      ...data,
-      selectedTaskId: task._id,
-      taskUrl: task.url,
-      taskGoal: task.goal,
-      expected: task.expected ?? "",
-      compareMode: task.compareMode,
-    });
+    onChange(applyTaskRecordToStep1(data, task));
   }
 
   return (
@@ -260,7 +345,6 @@ function Step1Form({
                   onChange({
                     ...data,
                     taskMode: mode.id,
-                    selectedTaskId: mode.id === "advanced" ? null : data.selectedTaskId,
                   })
                 }
                 className={`text-left rounded-xl border px-3.5 py-3 transition-colors ${
@@ -277,8 +361,6 @@ function Step1Form({
         </div>
       </div>
 
-      {isSimpleMode ? (
-        <>
       <div>
         <Label required>Task</Label>
         <select
@@ -289,17 +371,19 @@ function Step1Form({
           <option value="__new__">+ Create new task</option>
           {(tasks ?? []).map((t) => (
             <option key={t._id} value={t._id}>
-              {t.name}
+              {t.name}{t.taskMode === "advanced" ? " (advanced)" : ""}
             </option>
           ))}
         </select>
         {isExisting && (
           <p className="text-xs text-violet-500 dark:text-violet-400 mt-1">
-            Using saved task. Fields below are read-only.
+            Loaded saved task.
           </p>
         )}
       </div>
 
+      {isSimpleMode ? (
+        <>
       <div>
         <Label required>Task URL</Label>
         <Input
@@ -879,36 +963,7 @@ function NewExperimentPageInner() {
   const [error, setError] = useState<string | null>(null);
   const prefilled = useRef(false);
 
-  const [step1, setStep1] = useState<Step1>({
-    name: "",
-    taskMode: "simple",
-    selectedTaskId: null,
-    taskUrl: "",
-    taskGoal: "",
-    expected: "",
-    compareMode: "contains",
-    scenario: "answer",
-    scenarioArgsText: JSON.stringify(
-      {
-        url: "",
-        prompt: "",
-        expected: "",
-        compare_mode: "contains",
-      },
-      null,
-      2
-    ),
-    taskIdMeta: "",
-    externalId: "",
-    difficulty: "",
-    category: "",
-    successConditionsText: "",
-    maxSteps: "",
-    timeoutSec: "",
-    maxAttempts: "",
-    retryDelaySec: "",
-    retryTransientOnly: true,
-  });
+  const [step1, setStep1] = useState<Step1>(createDefaultStep1());
 
   const [step2, setStep2] = useState<Step2>({
     models: ["gpt-4o", "claude-sonnet-4-5"],
@@ -921,6 +976,8 @@ function NewExperimentPageInner() {
 
   useEffect(() => {
     if (prefilled.current || !sourceExperiment || !sourceVariants) return;
+    const taskList = tasks as TaskRecord[] | undefined;
+    if (sourceExperiment.taskId && !taskList) return;
     prefilled.current = true;
 
     const models = [...new Set(sourceVariants.map((v) => v.model))];
@@ -929,39 +986,58 @@ function NewExperimentPageInner() {
       ?.replace(/^Answer contains "/, "")
       .replace(/"$/, "") ?? "";
 
-    setStep1({
-      name: `${sourceExperiment.name} (copy)`,
-      taskMode: "simple",
-      selectedTaskId: sourceExperiment.taskId ?? null,
-      taskUrl: sourceExperiment.taskUrl,
-      taskGoal: sourceExperiment.taskGoal,
-      expected: expectedText,
-      compareMode: "contains",
-      scenario: "answer",
-      scenarioArgsText: JSON.stringify(
-        {
-          url: sourceExperiment.taskUrl,
-          prompt: sourceExperiment.taskGoal,
+    const base = createDefaultStep1(`${sourceExperiment.name} (copy)`);
+    if (sourceExperiment.taskId && taskList) {
+      const sourceTask = taskList.find((task) => task._id === sourceExperiment.taskId);
+      if (sourceTask) {
+        setStep1({
+          ...applyTaskRecordToStep1(base, sourceTask),
+          name: `${sourceExperiment.name} (copy)`,
+        });
+      } else {
+        setStep1({
+          ...base,
+          selectedTaskId: sourceExperiment.taskId ?? null,
+          taskUrl: sourceExperiment.taskUrl,
+          taskGoal: sourceExperiment.taskGoal,
           expected: expectedText,
-          compare_mode: "contains",
-        },
-        null,
-        2
-      ),
-      taskIdMeta: "",
-      externalId: "",
-      difficulty: "",
-      category: "",
-      successConditionsText: (sourceExperiment.successConditions ?? []).join("\n"),
-      maxSteps: "",
-      timeoutSec: "",
-      maxAttempts: "",
-      retryDelaySec: "",
-      retryTransientOnly: true,
-    });
+          compareMode: "contains",
+          scenarioArgsText: JSON.stringify(
+            {
+              url: sourceExperiment.taskUrl,
+              prompt: sourceExperiment.taskGoal,
+              expected: expectedText,
+              compare_mode: "contains",
+            },
+            null,
+            2
+          ),
+          successConditionsText: (sourceExperiment.successConditions ?? []).join("\n"),
+        });
+      }
+    } else {
+      setStep1({
+        ...base,
+        taskUrl: sourceExperiment.taskUrl,
+        taskGoal: sourceExperiment.taskGoal,
+        expected: expectedText,
+        compareMode: "contains",
+        scenarioArgsText: JSON.stringify(
+          {
+            url: sourceExperiment.taskUrl,
+            prompt: sourceExperiment.taskGoal,
+            expected: expectedText,
+            compare_mode: "contains",
+          },
+          null,
+          2
+        ),
+        successConditionsText: (sourceExperiment.successConditions ?? []).join("\n"),
+      });
+    }
     setStep2({ models: models.length > 0 ? models : ["gpt-4o"], group: 3 });
     setStep3({ toolConfigs: toolConfigs.length > 0 ? toolConfigs : ["full"] });
-  }, [sourceExperiment, sourceVariants]);
+  }, [sourceExperiment, sourceVariants, tasks]);
 
   async function handleLaunch() {
     setIsLaunching(true);
@@ -987,19 +1063,6 @@ function NewExperimentPageInner() {
         }
       }
 
-      let taskId: Id<"tasks"> | undefined;
-      if (isSimpleMode && step1.selectedTaskId) {
-        taskId = step1.selectedTaskId as Id<"tasks">;
-      } else if (isSimpleMode) {
-        taskId = await createTask({
-          name: step1.name,
-          url: step1.taskUrl,
-          goal: step1.taskGoal,
-          expected: step1.expected || undefined,
-          compareMode: step1.compareMode,
-        });
-      }
-
       const successConditions = isSimpleMode
         ? step1.expected
           ? [`Answer contains "${step1.expected}"`]
@@ -1016,6 +1079,44 @@ function NewExperimentPageInner() {
         : typeof scenarioArgsFromAdvanced?.prompt === "string"
         ? scenarioArgsFromAdvanced.prompt
         : `Scenario: ${step1.scenario}`;
+
+      let taskId: Id<"tasks"> | undefined;
+      if (step1.selectedTaskId) {
+        taskId = step1.selectedTaskId as Id<"tasks">;
+      } else if (isSimpleMode) {
+        taskId = await createTask({
+          name: step1.name,
+          url: step1.taskUrl,
+          goal: step1.taskGoal,
+          expected: step1.expected || undefined,
+          compareMode: step1.compareMode,
+          taskMode: "simple",
+        });
+      } else {
+        const advancedTaskPayload: AdvancedTaskPayload = {
+          scenario: step1.scenario,
+          scenarioArgsText: step1.scenarioArgsText,
+          taskIdMeta: step1.taskIdMeta || undefined,
+          externalId: step1.externalId || undefined,
+          difficulty: step1.difficulty || undefined,
+          category: step1.category || undefined,
+          successConditionsText: step1.successConditionsText || undefined,
+          maxSteps: step1.maxSteps || undefined,
+          timeoutSec: step1.timeoutSec || undefined,
+          maxAttempts: step1.maxAttempts || undefined,
+          retryDelaySec: step1.retryDelaySec || undefined,
+          retryTransientOnly: step1.retryTransientOnly,
+        };
+        taskId = await createTask({
+          name: step1.name,
+          url: derivedTaskUrl,
+          goal: derivedTaskGoal,
+          expected: undefined,
+          compareMode: "contains",
+          taskMode: "advanced",
+          taskPayload: JSON.stringify(advancedTaskPayload),
+        });
+      }
 
       const experimentId = await createExperiment({
         name: step1.name,
