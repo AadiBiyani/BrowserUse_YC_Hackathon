@@ -352,6 +352,9 @@ def _build_convex_metrics(data: dict) -> dict:
         # Optional: set by experiment_runner.py to route the run to the correct experiment
         # in Convex without relying on the job_id lookup.
         "override_experiment_id": data.get("override_experiment_id"),
+
+        # Tool config: set by experiment_runner.py so Convex can match the correct variant.
+        "tool_config": data.get("tool_config"),
     }
 
 

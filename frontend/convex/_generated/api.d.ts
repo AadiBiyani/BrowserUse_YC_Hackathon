@@ -8,7 +8,12 @@
  * @module
  */
 
-import type * as myFunctions from "../myFunctions.js";
+import type * as chat from "../chat.js";
+import type * as experiments from "../experiments.js";
+import type * as http from "../http.js";
+import type * as runs from "../runs.js";
+import type * as seed from "../seed.js";
+import type * as variants from "../variants.js";
 
 import type {
   ApiFromModules,
@@ -17,7 +22,12 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  myFunctions: typeof myFunctions;
+  chat: typeof chat;
+  experiments: typeof experiments;
+  http: typeof http;
+  runs: typeof runs;
+  seed: typeof seed;
+  variants: typeof variants;
 }>;
 
 /**

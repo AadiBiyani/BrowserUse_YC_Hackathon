@@ -1,328 +1,178 @@
 "use client";
 
-import { useMutation, useQuery } from "convex/react";
-import { api } from "../convex/_generated/api";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import Link from "next/link";
-import Image from "next/image";
-import { useState, useEffect, useRef } from "react";
 
-export default function Home() {
+const STATUS_STYLES: Record<string, { dot: string; text: string; bg: string; label: string }> = {
+  pending:   { dot: "bg-amber-400",              text: "text-amber-700 dark:text-amber-400",   bg: "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800",   label: "Pending"   },
+  running:   { dot: "bg-blue-400 animate-pulse", text: "text-blue-700 dark:text-blue-400",     bg: "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800",     label: "Running"   },
+  completed: { dot: "bg-emerald-400",            text: "text-emerald-700 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800", label: "Completed" },
+  failed:    { dot: "bg-red-400",                text: "text-red-700 dark:text-red-400",       bg: "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800",         label: "Failed"    },
+};
+
+function StatusBadge({ status }: { status: string }) {
+  const s = STATUS_STYLES[status] ?? STATUS_STYLES.pending;
   return (
-    <>
-      <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md p-4 border-b border-slate-200 dark:border-slate-700 flex flex-row justify-between items-center shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-3">
-            <Image src="/convex.svg" alt="Convex Logo" width={32} height={32} />
-            <div className="w-px h-8 bg-slate-300 dark:bg-slate-600"></div>
-            <Image
-              src="/nextjs-icon-light-background.svg"
-              alt="Next.js Logo"
-              width={32}
-              height={32}
-              className="dark:hidden"
-            />
-            <Image
-              src="/nextjs-icon-dark-background.svg"
-              alt="Next.js Logo"
-              width={32}
-              height={32}
-              className="hidden dark:block"
-            />
-          </div>
-          <h1 className="font-semibold text-slate-800 dark:text-slate-200">
-            Convex + Next.js
-          </h1>
-        </div>
-        <AuthPopoverButton />
-      </header>
-      <main className="p-8 flex flex-col gap-8">
-        <Content />
-      </main>
-    </>
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-xs font-medium ${s.bg} ${s.text}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
+      {s.label}
+    </span>
   );
 }
 
-function Content() {
-  const { viewer, numbers } =
-    useQuery(api.myFunctions.listNumbers, {
-      count: 10,
-    }) ?? {};
-  const addNumber = useMutation(api.myFunctions.addNumber);
+function formatDate(ts: number) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(ts));
+}
 
-  if (viewer === undefined || numbers === undefined) {
-    return (
-      <div className="mx-auto">
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></div>
-          <div
-            className="w-2 h-2 bg-slate-500 rounded-full animate-bounce"
-            style={{ animationDelay: "0.1s" }}
-          ></div>
-          <div
-            className="w-2 h-2 bg-slate-600 rounded-full animate-bounce"
-            style={{ animationDelay: "0.2s" }}
-          ></div>
-          <p className="ml-2 text-slate-600 dark:text-slate-400">Loading...</p>
-        </div>
-      </div>
-    );
-  }
+export default function Home() {
+  const experiments = useQuery(api.experiments.list);
 
   return (
-    <div className="flex flex-col gap-6 max-w-lg mx-auto">
-      <div>
-        <h2 className="font-bold text-xl text-slate-800 dark:text-slate-200">
-          Welcome!
-        </h2>
-        <p className="text-slate-600 dark:text-slate-400 mt-2">
-          This demo app generates random numbers and stores them in your Convex
-          database.
-        </p>
-      </div>
-
-      <div className="h-px bg-slate-200 dark:bg-slate-700"></div>
-
-      <div className="flex flex-col gap-4">
-        <h2 className="font-semibold text-xl text-slate-800 dark:text-slate-200">
-          Number generator
-        </h2>
-        <p className="text-slate-600 dark:text-slate-400 text-sm">
-          Click the button below to generate a new number. The data is persisted
-          in the Convex cloud database - open this page in another window and
-          see the data sync automatically!
-        </p>
-        <button
-          className="bg-slate-700 hover:bg-slate-800 dark:bg-slate-600 dark:hover:bg-slate-500 text-white text-sm font-medium px-6 py-3 rounded-lg cursor-pointer transition-all duration-200 shadow-md hover:shadow-lg hover:scale-[1.02] active:scale-[0.98]"
-          onClick={() => {
-            void addNumber({ value: Math.floor(Math.random() * 10) });
-          }}
-        >
-          + Generate random number
-        </button>
-        <div className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl p-4 shadow-sm">
-          <p className="font-semibold text-slate-800 dark:text-slate-200 mb-2">
-            Newest Numbers
-          </p>
-          <p className="text-slate-700 dark:text-slate-300 font-mono text-lg">
-            {numbers?.length === 0
-              ? "Click the button to generate a number!"
-              : (numbers?.join(", ") ?? "...")}
-          </p>
-        </div>
-      </div>
-
-      <div className="h-px bg-slate-200 dark:bg-slate-700"></div>
-
-      <div className="flex flex-col gap-3">
-        <h2 className="font-semibold text-xl text-slate-800 dark:text-slate-200">
-          Making changes
-        </h2>
-        <p className="text-slate-600 dark:text-slate-400 text-sm">
-          Edit{" "}
-          <code className="text-sm font-semibold font-mono bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 px-2 py-1 rounded-md border border-slate-300 dark:border-slate-600">
-            convex/myFunctions.ts
-          </code>{" "}
-          to change the backend.
-        </p>
-        <p className="text-slate-600 dark:text-slate-400 text-sm">
-          Edit{" "}
-          <code className="text-sm font-semibold font-mono bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 px-2 py-1 rounded-md border border-slate-300 dark:border-slate-600">
-            app/page.tsx
-          </code>{" "}
-          to change the frontend.
-        </p>
-        <p className="text-slate-600 dark:text-slate-400 text-sm">
-          See the{" "}
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+      {/* Header */}
+      <header className="sticky top-0 z-10 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800">
+        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-gradient-to-br from-violet-600 to-indigo-600 rounded-lg flex items-center justify-center shadow-sm">
+              <span className="text-white text-xs font-bold">AL</span>
+            </div>
+            <span className="text-lg font-bold text-slate-900 dark:text-slate-100">AgentLens</span>
+          </div>
           <Link
-            href="/server"
-            className="text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 font-medium underline decoration-2 underline-offset-2 transition-colors"
+            href="/experiments/new"
+            className="inline-flex items-center gap-2 bg-violet-600 hover:bg-violet-700 active:bg-violet-800 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors shadow-sm"
           >
-            /server route
-          </Link>{" "}
-          for an example of loading data in a server component
-        </p>
-      </div>
-
-      <div className="h-px bg-slate-200 dark:bg-slate-700"></div>
-
-      <div className="flex flex-col gap-4">
-        <h2 className="text-xl font-bold text-slate-800 dark:text-slate-200">
-          Useful resources
-        </h2>
-        <div className="flex gap-4">
-          <div className="flex flex-col gap-4 w-1/2">
-            <ResourceCard
-              title="Convex docs"
-              description="Read comprehensive documentation for all Convex features."
-              href="https://docs.convex.dev/home"
-            />
-            <ResourceCard
-              title="Stack articles"
-              description="Learn about best practices, use cases, and more from a growing
-            collection of articles, videos, and walkthroughs."
-              href="https://www.typescriptlang.org/docs/handbook/2/basic-types.html"
-            />
-          </div>
-          <div className="flex flex-col gap-4 w-1/2">
-            <ResourceCard
-              title="Templates"
-              description="Browse our collection of templates to get started quickly."
-              href="https://www.convex.dev/templates"
-            />
-            <ResourceCard
-              title="Discord"
-              description="Join our developer community to ask questions, trade tips & tricks,
-            and show off your projects."
-              href="https://www.convex.dev/community"
-            />
-          </div>
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            New Experiment
+          </Link>
         </div>
-      </div>
+      </header>
+
+      <main className="max-w-5xl mx-auto px-6 py-12">
+        {/* Hero */}
+        <div className="mb-10">
+          <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-100 mb-2">
+            Weights &amp; Biases for web agents
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 text-base max-w-xl">
+            Run structured experiments across AI models, compare trace-level performance, and ask
+            natural language questions about your results.
+          </p>
+        </div>
+
+        {/* Sponsor row */}
+        <div className="flex items-center gap-2 mb-8 flex-wrap">
+          <span className="text-xs text-slate-400 dark:text-slate-500">Powered by</span>
+          {["HUD", "Supermemory", "Convex", "Browser Use", "Anthropic"].map((name) => (
+            <span
+              key={name}
+              className="text-xs px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-900"
+            >
+              {name}
+            </span>
+          ))}
+        </div>
+
+        {/* Experiments list */}
+        {experiments === undefined ? (
+          <div className="space-y-3">
+            {[...Array(3)].map((_, i) => (
+              <div
+                key={i}
+                className="h-[84px] bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 animate-pulse"
+              />
+            ))}
+          </div>
+        ) : experiments.length === 0 ? (
+          <EmptyState />
+        ) : (
+          <div className="space-y-3">
+            {experiments.map((exp) => (
+              <Link
+                key={exp._id}
+                href={`/experiments/${exp._id}`}
+                className="flex items-center justify-between gap-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 px-6 py-4 hover:border-violet-300 dark:hover:border-violet-700 hover:shadow-sm transition-all group"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-3 mb-1 flex-wrap">
+                    <span className="font-semibold text-slate-900 dark:text-slate-100 text-sm truncate group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors">
+                      {exp.name}
+                    </span>
+                    <StatusBadge status={exp.status} />
+                  </div>
+                  {exp.taskGoal && (
+                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-lg">
+                      {exp.taskGoal}
+                    </p>
+                  )}
+                  {exp.taskUrl && (
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 truncate">
+                      {exp.taskUrl}
+                    </p>
+                  )}
+                </div>
+                <div className="flex-shrink-0 flex items-center gap-4">
+                  <p className="text-xs text-slate-400 dark:text-slate-500 text-right whitespace-nowrap">
+                    {formatDate(exp.createdAt)}
+                  </p>
+                  <svg
+                    className="w-4 h-4 text-slate-300 dark:text-slate-600 group-hover:text-violet-400 transition-colors"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2.5}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                  </svg>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </main>
     </div>
   );
 }
 
-function ResourceCard({
-  title,
-  description,
-  href,
-}: {
-  title: string;
-  description: string;
-  href: string;
-}) {
+function EmptyState() {
   return (
-    <a
-      href={href}
-      className="flex flex-col gap-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 p-5 rounded-xl h-36 overflow-auto border border-slate-300 dark:border-slate-600 hover:border-slate-400 dark:hover:border-slate-500 shadow-sm hover:shadow-md transition-all duration-200 hover:scale-[1.02] group cursor-pointer"
-    >
-      <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 group-hover:text-slate-900 dark:group-hover:text-slate-100 transition-colors">
-        {title} →
-      </h3>
-      <p className="text-xs text-slate-600 dark:text-slate-400">
-        {description}
+    <div className="text-center py-24 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
+      <div className="w-16 h-16 bg-violet-50 dark:bg-violet-900/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+        <svg
+          className="w-7 h-7 text-violet-400"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={1.5}
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0 1 12 15a9.065 9.065 0 0 1-6.23-.693L4.2 14l-1.358 5.52A48.108 48.108 0 0 0 12 20.9a48.108 48.108 0 0 0 9.16-.803L19.8 15.3Z"
+          />
+        </svg>
+      </div>
+      <h3 className="font-semibold text-slate-700 dark:text-slate-300 mb-1">No experiments yet</h3>
+      <p className="text-sm text-slate-400 dark:text-slate-500 mb-6 max-w-sm mx-auto">
+        Run your first experiment to compare AI models on a web task and get AI-powered insights.
       </p>
-    </a>
-  );
-}
-
-function AuthPopoverButton() {
-  const [isOpen, setIsOpen] = useState(false);
-  const [selectedAuth, setSelectedAuth] = useState<
-    "authkit" | "clerk" | "convexauth"
-  >("authkit");
-  const [copied, setCopied] = useState(false);
-  const popoverRef = useRef<HTMLDivElement>(null);
-
-  const commands = {
-    authkit: "npm create convex@latest -- --template nextjs-authkit",
-    clerk: "npm create convex@latest -- --template nextjs-clerk",
-    convexauth: "npm create convex@latest -- --template nextjs-convexauth",
-  };
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(commands[selectedAuth]);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        popoverRef.current &&
-        !popoverRef.current.contains(event.target as Node)
-      ) {
-        setIsOpen(false);
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [isOpen]);
-
-  return (
-    <div className="relative" ref={popoverRef}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="bg-green-600 hover:bg-green-700 dark:bg-green-600 dark:hover:bg-green-500 text-white text-sm font-medium px-4 py-2 rounded-lg cursor-pointer transition-all duration-200 shadow-sm hover:shadow-md"
+      <Link
+        href="/experiments/new"
+        className="inline-flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors shadow-sm"
       >
-        Want Auth?
-      </button>
-
-      {isOpen && (
-        <div className="absolute right-0 mt-2 w-[560px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl shadow-xl z-50 p-6">
-          <p className="text-slate-700 dark:text-slate-300 text-sm mb-4">
-            You can create a copy of this project with auth integrated by using
-            this command.
-          </p>
-
-          <div className="flex flex-col gap-3 mb-4">
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="radio"
-                name="auth"
-                value="authkit"
-                checked={selectedAuth === "authkit"}
-                onChange={(e) => setSelectedAuth(e.target.value as "authkit")}
-                className="w-4 h-4 cursor-pointer"
-              />
-              <Image src="/workos.svg" alt="WorkOS" width={20} height={20} />
-              <span className="text-slate-700 dark:text-slate-300 text-sm">
-                WorkOS AuthKit
-              </span>
-            </label>
-
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="radio"
-                name="auth"
-                value="clerk"
-                checked={selectedAuth === "clerk"}
-                onChange={(e) => setSelectedAuth(e.target.value as "clerk")}
-                className="w-4 h-4 cursor-pointer"
-              />
-              <Image src="/clerk.svg" alt="Clerk" width={20} height={20} />
-              <span className="text-slate-700 dark:text-slate-300 text-sm">
-                Clerk
-              </span>
-            </label>
-
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="radio"
-                name="auth"
-                value="convexauth"
-                checked={selectedAuth === "convexauth"}
-                onChange={(e) =>
-                  setSelectedAuth(e.target.value as "convexauth")
-                }
-                className="w-4 h-4 cursor-pointer"
-              />
-              <Image src="/convex.svg" alt="Convex" width={20} height={20} />
-              <span className="text-slate-700 dark:text-slate-300 text-sm">
-                Convex Auth
-              </span>
-            </label>
-          </div>
-
-          <div className="bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg p-3 flex items-center justify-between gap-2">
-            <code className="text-xs text-slate-700 dark:text-slate-300 font-mono break-all">
-              {commands[selectedAuth]}
-            </code>
-            <button
-              onClick={handleCopy}
-              className="bg-slate-600 hover:bg-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600 text-white text-xs px-3 py-1 rounded cursor-pointer transition-colors flex-shrink-0"
-            >
-              {copied ? "Copied!" : "Copy"}
-            </button>
-          </div>
-        </div>
-      )}
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+        </svg>
+        New Experiment
+      </Link>
     </div>
   );
 }

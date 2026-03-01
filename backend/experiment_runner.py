@@ -5,7 +5,7 @@ Called by api.py as a background asyncio task via POST /run-experiment.
 
 Flow:
   1. Mark all variants as "running" in Convex via /updateVariantStatus HTTP action
-  2. For each tool config group: fire hud.eval() across model variants
+  2. For each variant spec: fire one hud.eval() with a single model + tool_config
   3. For each completed trace: ingest into MongoDB + Supermemory + Convex
      (experiment_id and tool_config are injected so /ingestTrace routes correctly)
   4. Mark the experiment as "completed" in Convex via the HTTP mutation API
@@ -16,7 +16,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from itertools import groupby
 
 import httpx
 from dotenv import load_dotenv
@@ -114,21 +113,16 @@ async def run_experiment(
     await _update_variant_statuses(experiment_id, variant_specs, "running")
 
     spaces = [f"experiment-{experiment_id}"]
-    any_success = False
 
-    # ── 2. Group variant_specs by tool_config and fire one eval per group ────
-    # Sort so groupby works correctly (groupby requires adjacent equal keys).
-    sorted_specs = sorted(variant_specs, key=lambda s: s.get("tool_config", "full"))
-    tool_config_groups = {
-        tc: [s["model"] for s in group_iter]
-        for tc, group_iter in groupby(sorted_specs, key=lambda s: s.get("tool_config", "full"))
-    }
-
-    for tool_config, models in tool_config_groups.items():
+    # ── 2. Fire all variant evals in parallel, one hud.eval() per spec ────────
+    async def _run_variant(spec: dict) -> bool:
+        """Run a single variant and ingest its traces. Returns True on success."""
+        model = spec["model"]
+        tool_config = spec.get("tool_config", "full")
         allowed_tools = TOOL_PRESETS.get(tool_config)
         logger.info(
-            "[experiment_runner] eval group tool_config=%s models=%s",
-            tool_config, models,
+            "[experiment_runner] eval variant model=%s tool_config=%s",
+            model, tool_config,
         )
 
         try:
@@ -142,26 +136,27 @@ async def run_experiment(
                 allowed_tools=allowed_tools,
             )
 
-            async with hud.eval(task, variants={"model": models}, group=group) as ctx:
+            async with hud.eval(task, variants={"model": [model]}, group=group) as ctx:
                 agent = create_agent(ctx.variants["model"])
                 await agent.run(ctx)
 
-            results = ctx.results
-            logger.info(
-                "[experiment_runner] eval complete tool_config=%s — %d results",
-                tool_config, len(results),
-            )
-            any_success = True
+            # ctx.results is populated only when total_evals > 1 (parallel path).
+            # When group=1 (single eval), ctx itself is the result.
+            results = list(ctx.results) if ctx.results else [ctx]
 
+            logger.info(
+                "[experiment_runner] eval complete model=%s tool_config=%s — %d results",
+                model, tool_config, len(results),
+            )
         except Exception as exc:
             logger.error(
-                "[experiment_runner] HUD eval failed tool_config=%s: %s", tool_config, exc
+                "[experiment_runner] HUD eval failed model=%s tool_config=%s: %s",
+                model, tool_config, exc,
             )
-            failed_specs = [s for s in variant_specs if s.get("tool_config", "full") == tool_config]
-            await _update_variant_statuses(experiment_id, failed_specs, "failure")
-            continue
+            await _update_variant_statuses(experiment_id, [spec], "failure")
+            return False
 
-        # ── 3. Ingest each trace from this eval group ─────────────────────
+        # ── 3. Ingest each trace from this variant ────────────────────────
         async with httpx.AsyncClient() as http_client:
             for r in results:
                 if not r.trace_id:
@@ -169,13 +164,14 @@ async def run_experiment(
                 try:
                     trace_data = await fetch_trace(r.trace_id, http_client)
                     trace_data["override_experiment_id"] = experiment_id
+                    trace_data["model"] = model
                     trace_data["tool_config"] = tool_config
+                    trace_data["model_label"] = f"{model}:{tool_config}"
 
                     await store_raw_mongo(trace_data)
                     await store_supermemory_chunks(trace_data, http_client, extra_spaces=spaces)
                     await store_convex_metrics(trace_data, http_client)
 
-                    model = r.variants.get("model", "unknown") if hasattr(r, "variants") else "unknown"
                     logger.info(
                         "[experiment_runner] Ingested trace=%s model=%s tool_config=%s reward=%s",
                         r.trace_id, model, tool_config, r.reward,
@@ -184,6 +180,12 @@ async def run_experiment(
                     logger.error(
                         "[experiment_runner] Ingest failed for trace=%s: %s", r.trace_id, exc
                     )
+
+        await _update_variant_statuses(experiment_id, [spec], "success")
+        return True
+
+    results_flags = await asyncio.gather(*[_run_variant(spec) for spec in variant_specs])
+    any_success = any(results_flags)
 
     if not any_success:
         await _convex_mutation(

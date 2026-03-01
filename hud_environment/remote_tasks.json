@@ -1,0 +1,14 @@
+[
+  {
+    "env": {
+      "name": "replaybench-browser-env"
+    },
+    "scenario": "replaybench-browser-env:answer",
+    "args": {
+      "url": "https://httpbin.org/forms/post",
+      "prompt": "Fill in the form: set customer name to 'ReplayBench Test', telephone to '555-1234', email to 'test@replaybench.dev', select 'Medium' for pizza size, then submit. Return the response body confirming submission.",
+      "expected": "ReplayBench Test",
+      "compare_mode": "contains"
+    }
+  }
+]
