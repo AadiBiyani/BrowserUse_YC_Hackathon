@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AgentLens",
+  title: "TraceIQ",
   description: "AI Agent Evaluation Platform",
 };
 

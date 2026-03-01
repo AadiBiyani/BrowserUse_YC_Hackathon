@@ -29,10 +29,10 @@ export const seedAll = internalMutation({
     const experimentId = await ctx.db.insert("experiments", {
       name: JOB_ID,
       taskGoal:
-        "Fill in the form: set customer name to 'Trace.IQ Test', telephone to '555-1234', email to 'test@traceiq.dev', select 'Medium' for pizza size, then submit.",
+        "Fill in the form: set customer name to 'TraceIQ Test', telephone to '555-1234', email to 'test@traceiq.dev', select 'Medium' for pizza size, then submit.",
       taskUrl: "https://httpbin.org/forms/post",
       successConditions: [
-        "Response body contains 'Trace.IQ Test'",
+        "Response body contains 'TraceIQ Test'",
         "Form submitted successfully",
         "All fields correctly populated",
       ],

@@ -324,7 +324,7 @@ export default function AnalyticsPage() {
             <div className="w-px h-5 bg-slate-200 dark:bg-slate-700" />
             <div className="flex items-center gap-2.5">
               <div className="w-7 h-7 bg-gradient-to-br from-violet-600 to-indigo-600 rounded-md flex items-center justify-center">
-                <span className="text-white text-[10px] font-bold">AL</span>
+                <span className="text-white text-[10px] font-bold">TI</span>
               </div>
               <span className="text-base font-bold text-slate-900 dark:text-slate-100">Analytics</span>
             </div>

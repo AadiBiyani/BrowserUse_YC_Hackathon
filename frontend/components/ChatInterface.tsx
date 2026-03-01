@@ -157,7 +157,7 @@ function ChatBubble({ role, content }: { role: string; content: string }) {
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       {!isUser && (
         <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center mr-2 mt-0.5 flex-shrink-0">
-          <span className="text-white text-[10px] font-bold">AL</span>
+          <span className="text-white text-[10px] font-bold">TI</span>
         </div>
       )}
       <div

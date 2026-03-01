@@ -467,7 +467,7 @@ function Step1Form({
               value={data.scenarioArgsText}
               onChange={(e) => onChange({ ...data, scenarioArgsText: e.target.value })}
               rows={10}
-              placeholder={`{\n  "url": "https://httpbin.org/forms/post",\n  "prompt": "Fill the form and return confirmation.",\n  "expected": "Trace.IQ Test",\n  "compare_mode": "contains"\n}`}
+              placeholder={`{\n  "url": "https://httpbin.org/forms/post",\n  "prompt": "Fill the form and return confirmation.",\n  "expected": "TraceIQ Test",\n  "compare_mode": "contains"\n}`}
               className="w-full font-mono text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2.5 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/40 focus:border-violet-400 transition-all resize-y"
             />
             {!hasValidScenarioArgsJson && (
@@ -1197,7 +1197,7 @@ function NewExperimentPageInner() {
           <div className="w-px h-5 bg-slate-200 dark:bg-slate-700" />
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 bg-gradient-to-br from-violet-600 to-indigo-600 rounded-md flex items-center justify-center">
-              <span className="text-white text-[10px] font-bold">AL</span>
+              <span className="text-white text-[10px] font-bold">TI</span>
             </div>
             <span className="text-base font-bold text-slate-900 dark:text-slate-100">New Experiment</span>
           </div>
