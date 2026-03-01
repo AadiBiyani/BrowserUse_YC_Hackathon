@@ -19,6 +19,12 @@ class Config:
     # Evaluation - HUD
     HUD_API_KEY: str = os.getenv("HUD_API_KEY", "")
 
+    # Raw trace archive
+    MONGODB_URI: str = os.getenv("MONGODB_URI", "")
+
+    # Semantic memory / RAG
+    SUPERMEMORY_API_KEY: str = os.getenv("SUPERMEMORY_API_KEY", "")
+
     # Convex
     CONVEX_SITE_URL: str = os.getenv("CONVEX_SITE_URL", "")
     CONVEX_URL: str = os.getenv("CONVEX_URL", "")
