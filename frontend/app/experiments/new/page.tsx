@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useRef, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -37,6 +38,7 @@ const COMPARE_MODES = [
 
 type Step1 = {
   name: string;
+  selectedTaskId: string | null; // null = create new task
   taskUrl: string;
   taskGoal: string;
   expected: string;
@@ -134,16 +136,46 @@ function Input({
 
 // ── Step 1: Task configuration ────────────────────────────────────────────────
 
+type TaskRecord = {
+  _id: string;
+  name: string;
+  url: string;
+  goal: string;
+  expected?: string;
+  compareMode: string;
+};
+
 function Step1Form({
   data,
   onChange,
   onNext,
+  tasks,
 }: {
   data: Step1;
   onChange: (d: Step1) => void;
   onNext: () => void;
+  tasks: TaskRecord[] | undefined;
 }) {
+  const isExisting = data.selectedTaskId !== null;
   const valid = data.name.trim() && data.taskUrl.trim() && data.taskGoal.trim();
+
+  function handleTaskSelect(taskId: string) {
+    if (taskId === "__new__") {
+      onChange({ ...data, selectedTaskId: null, taskUrl: "", taskGoal: "", expected: "", compareMode: "contains" });
+      return;
+    }
+    const task = tasks?.find((t) => t._id === taskId);
+    if (!task) return;
+    onChange({
+      ...data,
+      selectedTaskId: task._id,
+      taskUrl: task.url,
+      taskGoal: task.goal,
+      expected: task.expected ?? "",
+      compareMode: task.compareMode,
+    });
+  }
+
   return (
     <div className="space-y-5">
       <div>
@@ -153,6 +185,27 @@ function Step1Form({
           onChange={(v) => onChange({ ...data, name: v })}
           placeholder="e.g. Form fill comparison"
         />
+      </div>
+
+      <div>
+        <Label required>Task</Label>
+        <select
+          value={data.selectedTaskId ?? "__new__"}
+          onChange={(e) => handleTaskSelect(e.target.value)}
+          className="w-full text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2.5 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500/40 focus:border-violet-400 transition-all"
+        >
+          <option value="__new__">+ Create new task</option>
+          {(tasks ?? []).map((t) => (
+            <option key={t._id} value={t._id}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+        {isExisting && (
+          <p className="text-xs text-violet-500 dark:text-violet-400 mt-1">
+            Using saved task. Fields below are read-only.
+          </p>
+        )}
       </div>
 
       <div>
@@ -206,6 +259,14 @@ function Step1Form({
           </select>
         </div>
       </div>
+
+      {!isExisting && data.taskUrl.trim() && data.taskGoal.trim() && (
+        <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2.5">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            This task will be saved for reuse in future experiments.
+          </p>
+        </div>
+      )}
 
       <div className="pt-2 flex justify-end">
         <button
@@ -575,17 +636,33 @@ function Step4Review({
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
-export default function NewExperimentPage() {
+function NewExperimentPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const fromId = searchParams.get("from");
+
   const createExperiment = useMutation(api.experiments.create);
   const createVariant = useMutation(api.variants.create);
+  const createTask = useMutation(api.tasks.create);
+
+  const tasks = useQuery(api.tasks.list);
+  const sourceExperiment = useQuery(
+    api.experiments.get,
+    fromId ? { id: fromId as Id<"experiments"> } : "skip"
+  );
+  const sourceVariants = useQuery(
+    api.variants.listByExperiment,
+    fromId ? { experimentId: fromId as Id<"experiments"> } : "skip"
+  );
 
   const [step, setStep] = useState(1);
   const [isLaunching, setIsLaunching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const prefilled = useRef(false);
 
   const [step1, setStep1] = useState<Step1>({
     name: "",
+    selectedTaskId: null,
     taskUrl: "",
     taskGoal: "",
     expected: "",
@@ -601,24 +678,57 @@ export default function NewExperimentPage() {
     toolConfigs: ["full"],
   });
 
+  useEffect(() => {
+    if (prefilled.current || !sourceExperiment || !sourceVariants) return;
+    prefilled.current = true;
+
+    const models = [...new Set(sourceVariants.map((v) => v.model))];
+    const toolConfigs = [...new Set(sourceVariants.map((v) => v.toolConfig))];
+    const expectedText = sourceExperiment.successConditions?.[0]
+      ?.replace(/^Answer contains "/, "")
+      .replace(/"$/, "") ?? "";
+
+    setStep1({
+      name: `${sourceExperiment.name} (copy)`,
+      selectedTaskId: sourceExperiment.taskId ?? null,
+      taskUrl: sourceExperiment.taskUrl,
+      taskGoal: sourceExperiment.taskGoal,
+      expected: expectedText,
+      compareMode: "contains",
+    });
+    setStep2({ models: models.length > 0 ? models : ["gpt-4o"], group: 3 });
+    setStep3({ toolConfigs: toolConfigs.length > 0 ? toolConfigs : ["full"] });
+  }, [sourceExperiment, sourceVariants]);
+
   async function handleLaunch() {
     setIsLaunching(true);
     setError(null);
     try {
-      // Build the Cartesian product of models × tool configs
       const variantSpecs = step2.models.flatMap((model) =>
         step3.toolConfigs.map((toolConfig) => ({ model, tool_config: toolConfig }))
       );
 
-      // 1. Create experiment in Convex
+      let taskId: Id<"tasks"> | undefined;
+      if (step1.selectedTaskId) {
+        taskId = step1.selectedTaskId as Id<"tasks">;
+      } else {
+        taskId = await createTask({
+          name: step1.name,
+          url: step1.taskUrl,
+          goal: step1.taskGoal,
+          expected: step1.expected || undefined,
+          compareMode: step1.compareMode,
+        });
+      }
+
       const experimentId = await createExperiment({
         name: step1.name,
         taskGoal: step1.taskGoal,
         taskUrl: step1.taskUrl,
         successConditions: step1.expected ? [`Answer contains "${step1.expected}"`] : [],
+        taskId,
       });
 
-      // 2. Create a variant record for each (model, toolConfig) combination
       await Promise.all(
         variantSpecs.map(({ model, tool_config }) =>
           createVariant({
@@ -630,7 +740,6 @@ export default function NewExperimentPage() {
         )
       );
 
-      // 3. Kick off the HUD experiment run on the backend (non-blocking)
       const res = await fetch(`${API_URL}/run-experiment`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -652,7 +761,6 @@ export default function NewExperimentPage() {
         throw new Error(data.detail ?? `API error ${res.status}`);
       }
 
-      // 4. Redirect to the live experiment page
       router.push(`/experiments/${experimentId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -689,7 +797,7 @@ export default function NewExperimentPage() {
 
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-8 shadow-sm">
           {step === 1 && (
-            <Step1Form data={step1} onChange={setStep1} onNext={() => setStep(2)} />
+            <Step1Form data={step1} onChange={setStep1} onNext={() => setStep(2)} tasks={tasks as TaskRecord[] | undefined} />
           )}
           {step === 2 && (
             <Step2Form
@@ -728,5 +836,13 @@ export default function NewExperimentPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function NewExperimentPage() {
+  return (
+    <Suspense>
+      <NewExperimentPageInner />
+    </Suspense>
   );
 }

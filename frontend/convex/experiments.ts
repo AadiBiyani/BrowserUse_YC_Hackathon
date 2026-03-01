@@ -49,6 +49,7 @@ export const create = mutation({
     taskGoal: v.string(),
     taskUrl: v.string(),
     successConditions: v.array(v.string()),
+    taskId: v.optional(v.id("tasks")),
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("experiments", {
@@ -56,6 +57,7 @@ export const create = mutation({
       taskGoal: args.taskGoal,
       taskUrl: args.taskUrl,
       successConditions: args.successConditions,
+      taskId: args.taskId,
       status: "pending",
       createdAt: Date.now(),
     });

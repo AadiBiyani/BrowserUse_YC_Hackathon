@@ -2,11 +2,21 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  tasks: defineTable({
+    name: v.string(),
+    url: v.string(),
+    goal: v.string(),
+    expected: v.optional(v.string()),
+    compareMode: v.string(), // "contains" | "exact" | "regex"
+    createdAt: v.number(),
+  }),
+
   experiments: defineTable({
     name: v.string(),
     taskGoal: v.string(),
     taskUrl: v.string(),
     successConditions: v.array(v.string()),
+    taskId: v.optional(v.id("tasks")),
     status: v.string(), // "pending" | "running" | "completed"
     createdAt: v.number(),
   }),
