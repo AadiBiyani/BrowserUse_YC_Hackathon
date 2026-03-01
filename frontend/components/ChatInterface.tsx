@@ -2,6 +2,8 @@
 
 import { useRef, useState, useEffect } from "react";
 import { useQuery, useMutation } from "convex/react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -143,6 +145,14 @@ export function ChatInterface({ experimentId }: ChatInterfaceProps) {
 
 function ChatBubble({ role, content }: { role: string; content: string }) {
   const isUser = role === "user";
+  const textTone = isUser ? "text-white" : "text-slate-900 dark:text-slate-100";
+  const inlineCodeTone = isUser
+    ? "bg-white/20"
+    : "bg-slate-200 dark:bg-slate-700";
+  const blockCodeTone = isUser
+    ? "bg-white/15 border border-white/20"
+    : "bg-slate-200 dark:bg-slate-800";
+
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       {!isUser && (
@@ -157,7 +167,48 @@ function ChatBubble({ role, content }: { role: string; content: string }) {
             : "bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 rounded-tl-sm"
         }`}
       >
-        {content}
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            p: ({ ...props }) => <p className={`${textTone} mb-2 last:mb-0`} {...props} />,
+            ul: ({ ...props }) => <ul className={`list-disc pl-5 mb-2 ${textTone}`} {...props} />,
+            ol: ({ ...props }) => <ol className={`list-decimal pl-5 mb-2 ${textTone}`} {...props} />,
+            li: ({ ...props }) => <li className="mb-1 last:mb-0" {...props} />,
+            h1: ({ ...props }) => <h1 className={`${textTone} text-base font-semibold mb-2`} {...props} />,
+            h2: ({ ...props }) => <h2 className={`${textTone} text-sm font-semibold mb-2`} {...props} />,
+            h3: ({ ...props }) => <h3 className={`${textTone} text-sm font-semibold mb-1`} {...props} />,
+            a: ({ ...props }) => (
+              <a
+                className={`${textTone} underline underline-offset-2 font-medium`}
+                target="_blank"
+                rel="noopener noreferrer"
+                {...props}
+              />
+            ),
+            code: ({ className, ...props }) => (
+              <code
+                className={`px-1 py-0.5 rounded text-[0.9em] ${inlineCodeTone} ${className ?? ""}`}
+                {...props}
+              />
+            ),
+            pre: ({ ...props }) => (
+              <pre
+                className={`p-2 rounded overflow-x-auto mb-2 ${blockCodeTone}`}
+                {...props}
+              />
+            ),
+            blockquote: ({ ...props }) => (
+              <blockquote
+                className={`border-l-2 pl-3 italic mb-2 ${
+                  isUser ? "border-white/40" : "border-slate-300 dark:border-slate-600"
+                } ${textTone}`}
+                {...props}
+              />
+            ),
+          }}
+        >
+          {content}
+        </ReactMarkdown>
       </div>
     </div>
   );

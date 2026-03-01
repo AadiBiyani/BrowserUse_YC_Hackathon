@@ -5,6 +5,7 @@ Routes:
     GET  /health
     POST /query                   → {answer, cited_trace_ids}
     POST /run-experiment          → starts async HUD eval, returns {status, experiment_id}
+    POST /run-analyzer            → starts async analyzer job, returns {status, experiment_id, analyzer_type, job_id}
     POST /compute-determinism     → compute + store determinism scores for an experiment
 
 Start:
@@ -16,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from uuid import uuid4
 
 from dotenv import load_dotenv
 
@@ -67,6 +69,18 @@ class RunExperimentRequest(BaseModel):
 
 class ComputeDeterminismRequest(BaseModel):
     experiment_id: str
+
+
+class RunAnalyzerRequest(BaseModel):
+    experiment_id: str
+    analyzer_type: str
+
+
+ALLOWED_ANALYZER_TYPES = {
+    "reward_hacking",
+    "failure_reasoning",
+    "tool_use",
+}
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -121,6 +135,53 @@ async def run_experiment_endpoint(req: RunExperimentRequest):
         req.experiment_id, req.variant_specs, req.group,
     )
     return {"status": "started", "experiment_id": req.experiment_id}
+
+
+@app.post("/run-analyzer")
+async def run_analyzer_endpoint(req: RunAnalyzerRequest):
+    """
+    Launch a QA analyzer job asynchronously.
+    Returns immediately; the analyzer run happens as a background task.
+    """
+    if not req.experiment_id.strip():
+        raise HTTPException(status_code=400, detail="experiment_id cannot be empty")
+    if req.analyzer_type not in ALLOWED_ANALYZER_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "invalid analyzer_type; expected one of "
+                f"{', '.join(sorted(ALLOWED_ANALYZER_TYPES))}"
+            ),
+        )
+
+    try:
+        from qa_analyzers import run_analyzer_job
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=500, detail=f"qa_analyzers module unavailable: {exc}"
+        ) from exc
+
+    job_id = str(uuid4())
+    asyncio.create_task(
+        run_analyzer_job(
+            experiment_id=req.experiment_id,
+            analyzer_type=req.analyzer_type,
+            job_id=job_id,
+        )
+    )
+
+    logger.info(
+        "Background analyzer started: experiment_id=%s analyzer_type=%s job_id=%s",
+        req.experiment_id,
+        req.analyzer_type,
+        job_id,
+    )
+    return {
+        "status": "accepted",
+        "experiment_id": req.experiment_id,
+        "analyzer_type": req.analyzer_type,
+        "job_id": job_id,
+    }
 
 
 @app.post("/compute-determinism")

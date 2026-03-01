@@ -50,6 +50,24 @@ export default defineSchema({
     .index("by_variant", ["variantId"])
     .index("by_trace", ["hudTraceId"]),
 
+  qaAnalyzerRuns: defineTable({
+    experimentId: v.id("experiments"),
+    analyzerType: v.string(), // "reward_hacking" | "failure_reasoning" | "tool_use"
+    status: v.string(), // "queued" | "running" | "completed" | "failed"
+    jobId: v.string(),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    error: v.optional(v.string()),
+    result: v.optional(v.string()),
+    model: v.optional(v.string()),
+    inputTraceCount: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_experiment", ["experimentId"])
+    .index("by_job", ["jobId"])
+    .index("by_experiment_analyzer", ["experimentId", "analyzerType"]),
+
   chatMessages: defineTable({
     experimentId: v.id("experiments"),
     role: v.string(), // "user" | "assistant"

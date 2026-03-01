@@ -11,6 +11,7 @@ import type { VariantMetrics } from "@/components/ComparisonTable";
 import { ChatInterface } from "@/components/ChatInterface";
 import { TraceViewer } from "@/components/TraceViewer";
 import { LiveProgress } from "@/components/LiveProgress";
+import { QAAnalyzersPanel } from "@/components/QAAnalyzersPanel";
 
 type RunSummary = {
   runId: string;
@@ -186,6 +187,7 @@ export default function ExperimentDetailPage({
               <TabsTrigger value="results">Results</TabsTrigger>
               <TabsTrigger value="chat">Chat</TabsTrigger>
               <TabsTrigger value="traces">Traces</TabsTrigger>
+              <TabsTrigger value="qa-analyzers">QA Analyzers</TabsTrigger>
             </TabsList>
 
             {/* ── Results tab ── */}
@@ -287,6 +289,11 @@ export default function ExperimentDetailPage({
                   </table>
                 </div>
               )}
+            </TabsContent>
+
+            {/* ── QA analyzers tab ── */}
+            <TabsContent value="qa-analyzers">
+              <QAAnalyzersPanel experimentId={experimentId} />
             </TabsContent>
           </Tabs>
         )}

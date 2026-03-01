@@ -108,6 +108,11 @@ export const deleteExperiment = mutation({
       .withIndex("by_experiment", (q) => q.eq("experimentId", id))
       .collect();
     for (const m of msgs) await ctx.db.delete(m._id);
+    const analyzerRuns = await ctx.db
+      .query("qaAnalyzerRuns")
+      .withIndex("by_experiment", (q) => q.eq("experimentId", id))
+      .collect();
+    for (const run of analyzerRuns) await ctx.db.delete(run._id);
     await ctx.db.delete(id);
   },
 });

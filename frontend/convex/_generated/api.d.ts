@@ -11,6 +11,7 @@
 import type * as chat from "../chat.js";
 import type * as experiments from "../experiments.js";
 import type * as http from "../http.js";
+import type * as qaAnalyzerRuns from "../qaAnalyzerRuns.js";
 import type * as runs from "../runs.js";
 import type * as seed from "../seed.js";
 import type * as tasks from "../tasks.js";
@@ -26,6 +27,7 @@ declare const fullApi: ApiFromModules<{
   chat: typeof chat;
   experiments: typeof experiments;
   http: typeof http;
+  qaAnalyzerRuns: typeof qaAnalyzerRuns;
   runs: typeof runs;
   seed: typeof seed;
   tasks: typeof tasks;
