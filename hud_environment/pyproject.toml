@@ -1,7 +1,7 @@
 [project]
-name = "replaybench-browser-env"
+name = "traceiq-browser-env"
 version = "0.1.0"
-description = "ReplayBench HUD Environment wrapping Browser Use action primitives"
+description = "Trace.IQ HUD Environment wrapping Browser Use action primitives"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -14,7 +14,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.hud]
-name = "replaybench-browser-env"
+name = "traceiq-browser-env"
 
 [tool.setuptools]
 py-modules = ["env"]

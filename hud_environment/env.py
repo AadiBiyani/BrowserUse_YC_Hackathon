@@ -34,7 +34,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-env = Environment(name="replaybench-browser-env")
+env = Environment(name="traceiq-browser-env")
 
 HEADLESS_DEFAULT = os.getenv("BROWSER_USE_HEADLESS", "true").strip().lower()[:1] in {"1", "t", "y"}
 ALLOW_HEADFUL = os.getenv("BROWSER_USE_ALLOW_HEADFUL", "false").strip().lower()[:1] in {"1", "t", "y"}

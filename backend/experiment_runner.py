@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 CONVEX_SITE_URL = os.getenv("CONVEX_SITE_URL", "")
 CONVEX_URL      = os.getenv("CONVEX_URL", "")
 
-HUB_ENV = "replaybench-browser-env"
+HUB_ENV = "traceiq-browser-env"
 
 # Tool config presets — mirrors the frontend TOOL_CONFIGS constant.
 # None means the scenario exposes all tools; a list restricts to those names.

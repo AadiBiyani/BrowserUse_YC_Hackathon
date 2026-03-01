@@ -1,13 +1,13 @@
 [
   {
     "env": {
-      "name": "replaybench-browser-env"
+      "name": "traceiq-browser-env"
     },
-    "scenario": "replaybench-browser-env:answer",
+    "scenario": "traceiq-browser-env:answer",
     "args": {
       "url": "https://httpbin.org/forms/post",
-      "prompt": "Fill in the form: set customer name to 'ReplayBench Test', telephone to '555-1234', email to 'test@replaybench.dev', select 'Medium' for pizza size, then submit. Return the response body confirming submission.",
-      "expected": "ReplayBench Test",
+      "prompt": "Fill in the form: set customer name to 'Trace.IQ Test', telephone to '555-1234', email to 'test@traceiq.dev', select 'Medium' for pizza size, then submit. Return the response body confirming submission.",
+      "expected": "Trace.IQ Test",
       "compare_mode": "contains"
     }
   }

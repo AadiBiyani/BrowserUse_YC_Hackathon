@@ -43,7 +43,7 @@ AUTH_HEADERS = {
     "Authorization": f"Bearer {HUD_API_KEY}",
     "Content-Type": "application/json",
     # HUD MCP server requires environment identification
-    "Environment-Name": "replaybench-browser-env",
+    "Environment-Name": "traceiq-browser-env",
 }
 
 
@@ -58,7 +58,7 @@ async def mcp_initialize(client: httpx.AsyncClient) -> str | None:
         "params": {
             "protocolVersion": "2024-11-05",
             "capabilities": {},
-            "clientInfo": {"name": "replaybench-inspector", "version": "0.1"},
+            "clientInfo": {"name": "traceiq-inspector", "version": "0.1"},
         },
     }
     r = await client.post(HUD_MCP_URL, headers=AUTH_HEADERS, json=payload, timeout=30)

@@ -467,7 +467,7 @@ function Step1Form({
               value={data.scenarioArgsText}
               onChange={(e) => onChange({ ...data, scenarioArgsText: e.target.value })}
               rows={10}
-              placeholder={`{\n  "url": "https://httpbin.org/forms/post",\n  "prompt": "Fill the form and return confirmation.",\n  "expected": "ReplayBench Test",\n  "compare_mode": "contains"\n}`}
+              placeholder={`{\n  "url": "https://httpbin.org/forms/post",\n  "prompt": "Fill the form and return confirmation.",\n  "expected": "Trace.IQ Test",\n  "compare_mode": "contains"\n}`}
               className="w-full font-mono text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2.5 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/40 focus:border-violet-400 transition-all resize-y"
             />
             {!hasValidScenarioArgsJson && (

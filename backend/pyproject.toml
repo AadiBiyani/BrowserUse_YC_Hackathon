@@ -1,7 +1,7 @@
 [project]
-name = "replaybench-backend"
+name = "traceiq-backend"
 version = "0.1.0"
-description = "ReplayBench backend — HUD eval runner and trace ingestion pipeline"
+description = "Trace.IQ backend — HUD eval runner and trace ingestion pipeline"
 requires-python = ">=3.11"
 dependencies = [
     # Browser agent runtime

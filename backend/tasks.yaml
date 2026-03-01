@@ -32,15 +32,15 @@ tasks:
     url: "https://httpbin.org/forms/post"
     goal: >
       Go to the form at httpbin.org/forms/post.
-      Fill in the customer name field with 'ReplayBench Test',
+      Fill in the customer name field with 'Trace.IQ Test',
       the telephone field with '555-1234',
-      and the email field with 'test@replaybench.dev'.
+      and the email field with 'test@traceiq.dev'.
       Select 'Medium' for pizza size.
       Submit the form and return the response body confirming submission.
     success_conditions:
-      - "response contains 'ReplayBench Test'"
+      - "response contains 'Trace.IQ Test'"
       - "response contains '555-1234'"
-      - "response contains 'test@replaybench.dev'"
+      - "response contains 'test@traceiq.dev'"
     difficulty: medium
     category: form_interaction
     notes: "httpbin is stable and controlled -- ideal for determinism testing"
@@ -69,12 +69,12 @@ tasks:
     goal: >
       Open the form at httpbin.org/forms/post.
       Fill customer name as 'Canary Rollout', telephone as '555-2026',
-      and email as 'canary@replaybench.dev'. Submit the form.
+      and email as 'canary@traceiq.dev'. Submit the form.
       From the resulting page, return only the submitted email value.
-    expected: "canary@replaybench.dev"
+    expected: "canary@traceiq.dev"
     compare_mode: contains
     success_conditions:
-      - "response contains 'canary@replaybench.dev'"
+      - "response contains 'canary@traceiq.dev'"
       - "form submission step was completed before extraction"
     difficulty: medium
     category: form_interaction

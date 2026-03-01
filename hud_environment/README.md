@@ -1,6 +1,6 @@
-# ReplayBench Browser Environment
+# Trace.IQ Browser Environment
 
-A HUD environment that wraps the Browser Use Python SDK into tool calls for ReplayBench agent benchmarking. Based on [hud-evals/browser-use-hud-environment](https://github.com/hud-evals/browser-use-hud-environment).
+A HUD environment that wraps the Browser Use Python SDK into tool calls for Trace.IQ agent benchmarking. Based on [hud-evals/browser-use-hud-environment](https://github.com/hud-evals/browser-use-hud-environment).
 
 Includes two scenarios:
 

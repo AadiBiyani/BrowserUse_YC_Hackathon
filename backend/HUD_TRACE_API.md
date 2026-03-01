@@ -98,7 +98,7 @@ Both have `category: "inference-2"`. Filter with: `span["name"].startswith("infe
           "type": "function",
           "function": {
             "name": "input",
-            "arguments": "{\"index\":4,\"text\":\"ReplayBench Test\",\"clear\":true}"
+            "arguments": "{\"index\":4,\"text\":\"Trace.IQ Test\",\"clear\":true}"
           }
         }
       ],
@@ -130,11 +130,11 @@ When the model gives a **final text answer** (no tool call):
     "request": {
       "params": {
         "name": "input",
-        "arguments": {"index": 4, "text": "ReplayBench Test", "clear": true}
+        "arguments": {"index": 4, "text": "Trace.IQ Test", "clear": true}
       }
     },
     "result": {
-      "content": [{"type": "text", "text": "{\"ok\":true,\"action\":\"input\",\"result\":{\"is_done\":false,\"long_term_memory\":\"Typed 'ReplayBench Test'\",\"extracted_content\":\"Typed 'ReplayBench Test'\",\"metadata\":{\"input_x\":236.15,\"input_y\":26.5}}}"}],
+      "content": [{"type": "text", "text": "{\"ok\":true,\"action\":\"input\",\"result\":{\"is_done\":false,\"long_term_memory\":\"Typed 'Trace.IQ Test'\",\"extracted_content\":\"Typed 'Trace.IQ Test'\",\"metadata\":{\"input_x\":236.15,\"input_y\":26.5}}}"}],
       "isError": false
     }
   }

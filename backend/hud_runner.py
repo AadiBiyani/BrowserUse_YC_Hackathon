@@ -29,7 +29,7 @@ load_dotenv()
 
 # ── Config ─────────────────────────────────────────────────────────────────
 
-HUB_ENV = "replaybench-browser-env"  # deployed at hud.ai/environments/36bee7f9-3184-4e29-88b4-05e27d712c3e
+HUB_ENV = "traceiq-browser-env"  # deployed at hud.ai/environments/36bee7f9-3184-4e29-88b4-05e27d712c3e
 
 MODELS = ["gpt-4o", "claude-sonnet-4-5", "gemini-2.0-flash"]
 GROUP = 3  # runs per model → 9 total
@@ -38,12 +38,12 @@ SUCCESS_REWARD_THRESHOLD = float(os.getenv("SUCCESS_REWARD_THRESHOLD", "0.5"))
 # Task: fill httpbin form — deterministic, no auth, 3 verifiable fields
 TASK_URL = "https://httpbin.org/forms/post"
 TASK_PROMPT = (
-    "Fill in the form: set customer name to 'ReplayBench Test', "
-    "telephone to '555-1234', email to 'test@replaybench.dev', "
+    "Fill in the form: set customer name to 'Trace.IQ Test', "
+    "telephone to '555-1234', email to 'test@traceiq.dev', "
     "select 'Medium' for pizza size, then submit. "
     "Return the response body confirming submission."
 )
-TASK_EXPECTED = "ReplayBench Test"
+TASK_EXPECTED = "Trace.IQ Test"
 TASK_COMPARE_MODE = "contains"
 
 OUT_DIR = Path(__file__).parent / "runs"
@@ -54,7 +54,7 @@ OUT_FILE = OUT_DIR / "seed_traces_raw.json"
 
 async def main() -> None:
     print("[hud_runner] Connecting to deployed environment…")
-    env = Environment("replaybench-browser-env").connect_hub(HUB_ENV)
+    env = Environment("traceiq-browser-env").connect_hub(HUB_ENV)
 
     task = env(
         "answer",
