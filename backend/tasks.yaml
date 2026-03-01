@@ -44,3 +44,68 @@ tasks:
     difficulty: medium
     category: form_interaction
     notes: "httpbin is stable and controlled -- ideal for determinism testing"
+
+  - task_id: canary_python_profile_dual_fact
+    display_name: "Canary: Python Profile Dual Fact"
+    url: "https://en.wikipedia.org/wiki/Python_(programming_language)"
+    goal: >
+      Go to the Python programming language Wikipedia page.
+      Find both of these fields from the infobox: "Designed by" and "First appeared".
+      Return a one-line answer in the exact format:
+      Designed by: <name>; First appeared: <year>.
+    expected: "Designed by: Guido van Rossum; First appeared: 1991"
+    compare_mode: contains
+    success_conditions:
+      - "response contains 'Guido van Rossum'"
+      - "response contains '1991'"
+      - "response uses the requested two-field format"
+    difficulty: medium
+    category: multi_step_extraction
+    notes: "Canary task with two checkpoints in one response."
+
+  - task_id: canary_httpbin_form_then_extract_origin
+    display_name: "Canary: Form Submit Then Extract Origin"
+    url: "https://httpbin.org/forms/post"
+    goal: >
+      Open the form at httpbin.org/forms/post.
+      Fill customer name as 'Canary Rollout', telephone as '555-2026',
+      and email as 'canary@replaybench.dev'. Submit the form.
+      From the resulting page, return only the submitted email value.
+    expected: "canary@replaybench.dev"
+    compare_mode: contains
+    success_conditions:
+      - "response contains 'canary@replaybench.dev'"
+      - "form submission step was completed before extraction"
+    difficulty: medium
+    category: form_interaction
+    notes: "Canary task that requires interaction + post-submit extraction."
+
+  - task_id: canary_http_status_dual_lookup
+    display_name: "Canary: HTTP Status Dual Lookup"
+    url: "https://en.wikipedia.org/wiki/List_of_HTTP_status_codes"
+    goal: >
+      On the HTTP status codes Wikipedia page, find the meaning of 201 and 418.
+      Return one line in this format:
+      201=<meaning>; 418=<meaning>.
+    expected: "201=Created; 418=I'm a teapot"
+    compare_mode: contains
+    success_conditions:
+      - "response contains '201=Created'"
+      - "response contains '418=I'"
+      - "response includes both codes in one line"
+    difficulty: medium
+    category: branching_lookup
+    notes: "Canary task with two independent lookups and a structured output."
+
+task_sets:
+  - set_id: canary_compat_v1
+    display_name: "Canary Compatibility Set v1"
+    compatibility_mode: legacy_answer_payload
+    description: >
+      Small curated complex task set that still runs through compatibility mode:
+      each task is emitted as the legacy payload shape
+      {url, prompt, expected, compare_mode} and auto-normalized to scenario=answer.
+    task_ids:
+      - canary_python_profile_dual_fact
+      - canary_httpbin_form_then_extract_origin
+      - canary_http_status_dual_lookup

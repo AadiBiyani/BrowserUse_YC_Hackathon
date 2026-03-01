@@ -44,6 +44,7 @@ HUD_API_KEY         = os.getenv("HUD_API_KEY", "")
 MONGODB_URI         = os.getenv("MONGODB_URI", "")
 SUPERMEMORY_API_KEY = os.getenv("SUPERMEMORY_API_KEY", "")
 CONVEX_SITE_URL     = os.getenv("CONVEX_SITE_URL", "")
+SUCCESS_REWARD_THRESHOLD = float(os.getenv("SUCCESS_REWARD_THRESHOLD", "0.5"))
 
 HUD_TELEMETRY_BASE  = "https://api.hud.ai/telemetry/traces"
 SUPERMEMORY_BASE    = "https://api.supermemory.ai/v3/documents"
@@ -145,7 +146,7 @@ def _build_supermemory_chunks(data: dict) -> list[dict]:
         and s.get("attributes", {}).get("request", {}).get("params", {}).get("name")
     ))
     outcome_text = (
-        f"Model {model} {'succeeded' if reward_val >= 1.0 else 'failed'} on task '{task_label}' "
+        f"Model {model} {'succeeded' if reward_val >= SUCCESS_REWARD_THRESHOLD else 'failed'} on task '{task_label}' "
         f"in {agent_steps} agent steps, {inference_calls} LLM calls, "
         f"${total_cost:.4f} total cost. "
         f"Tools used: {', '.join(tool_names) or 'none'}. "
@@ -310,6 +311,10 @@ def _build_convex_metrics(data: dict) -> dict:
         "external_id": data.get("external_id"),        # human-readable task ID e.g. "0001"
         "task_id":     data.get("task_id"),
         "scenario":    data.get("scenario"),            # e.g. "answer"
+        "difficulty":  data.get("difficulty"),
+        "category":    data.get("category"),
+        "attempt":     data.get("attempt"),
+        "max_attempts": data.get("max_attempts"),
 
         # Variant & outcome
         "model":   variants.get("model"),

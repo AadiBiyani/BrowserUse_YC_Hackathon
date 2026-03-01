@@ -36,13 +36,41 @@ const COMPARE_MODES = [
   { value: "regex",    label: "Regex — expected is a regex pattern" },
 ];
 
+const TASK_MODES = [
+  {
+    id: "simple",
+    label: "Simple (compatibility mode)",
+    description: "Use URL + prompt + expected answer. Runs through scenario=answer.",
+  },
+  {
+    id: "advanced",
+    label: "Advanced (scenario mode)",
+    description: "Use scenario + JSON scenarioArgs + optional task metadata.",
+  },
+] as const;
+
+const SCENARIO_OPTIONS = ["answer", "multi_step", "branching_goal", "wiki-game"] as const;
+
 type Step1 = {
   name: string;
+  taskMode: "simple" | "advanced";
   selectedTaskId: string | null; // null = create new task
   taskUrl: string;
   taskGoal: string;
   expected: string;
   compareMode: string;
+  scenario: string;
+  scenarioArgsText: string;
+  taskIdMeta: string;
+  externalId: string;
+  difficulty: string;
+  category: string;
+  successConditionsText: string;
+  maxSteps: string;
+  timeoutSec: string;
+  maxAttempts: string;
+  retryDelaySec: string;
+  retryTransientOnly: boolean;
 };
 
 type Step2 = {
@@ -145,6 +173,27 @@ type TaskRecord = {
   compareMode: string;
 };
 
+function parseOptionalInt(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseOptionalFloat(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = Number.parseFloat(trimmed);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseSuccessConditions(text: string): string[] {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 function Step1Form({
   data,
   onChange,
@@ -156,8 +205,20 @@ function Step1Form({
   onNext: () => void;
   tasks: TaskRecord[] | undefined;
 }) {
-  const isExisting = data.selectedTaskId !== null;
-  const valid = data.name.trim() && data.taskUrl.trim() && data.taskGoal.trim();
+  const isSimpleMode = data.taskMode === "simple";
+  const isExisting = isSimpleMode && data.selectedTaskId !== null;
+  const hasValidScenarioArgsJson = (() => {
+    if (isSimpleMode) return true;
+    try {
+      const parsed = JSON.parse(data.scenarioArgsText);
+      return !!parsed && typeof parsed === "object" && !Array.isArray(parsed);
+    } catch {
+      return false;
+    }
+  })();
+  const valid = isSimpleMode
+    ? !!(data.name.trim() && data.taskUrl.trim() && data.taskGoal.trim())
+    : !!(data.name.trim() && data.scenario.trim() && hasValidScenarioArgsJson);
 
   function handleTaskSelect(taskId: string) {
     if (taskId === "__new__") {
@@ -187,6 +248,37 @@ function Step1Form({
         />
       </div>
 
+      <div>
+        <Label required>Task mode</Label>
+        <div className="grid grid-cols-1 gap-2">
+          {TASK_MODES.map((mode) => {
+            const selected = data.taskMode === mode.id;
+            return (
+              <button
+                key={mode.id}
+                onClick={() =>
+                  onChange({
+                    ...data,
+                    taskMode: mode.id,
+                    selectedTaskId: mode.id === "advanced" ? null : data.selectedTaskId,
+                  })
+                }
+                className={`text-left rounded-xl border px-3.5 py-3 transition-colors ${
+                  selected
+                    ? "border-violet-400 bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300"
+                    : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200"
+                }`}
+              >
+                <p className="text-sm font-semibold">{mode.label}</p>
+                <p className="text-xs mt-0.5 opacity-80">{mode.description}</p>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {isSimpleMode ? (
+        <>
       <div>
         <Label required>Task</Label>
         <select
@@ -266,6 +358,103 @@ function Step1Form({
             This task will be saved for reuse in future experiments.
           </p>
         </div>
+      )}
+        </>
+      ) : (
+        <>
+          <div>
+            <Label required>Scenario</Label>
+            <select
+              value={data.scenario}
+              onChange={(e) => onChange({ ...data, scenario: e.target.value })}
+              className="w-full text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2.5 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500/40 focus:border-violet-400 transition-all"
+            >
+              {SCENARIO_OPTIONS.map((scenario) => (
+                <option key={scenario} value={scenario}>
+                  {scenario}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <Label required>Scenario args (JSON object)</Label>
+            <textarea
+              value={data.scenarioArgsText}
+              onChange={(e) => onChange({ ...data, scenarioArgsText: e.target.value })}
+              rows={10}
+              placeholder={`{\n  "url": "https://httpbin.org/forms/post",\n  "prompt": "Fill the form and return confirmation.",\n  "expected": "ReplayBench Test",\n  "compare_mode": "contains"\n}`}
+              className="w-full font-mono text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2.5 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/40 focus:border-violet-400 transition-all resize-y"
+            />
+            {!hasValidScenarioArgsJson && (
+              <p className="text-xs text-red-500 mt-1">Scenario args must be valid JSON object syntax.</p>
+            )}
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+              This is sent directly as `task.scenarioArgs` to `/run-experiment`.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Task ID (optional)</Label>
+              <Input value={data.taskIdMeta} onChange={(v) => onChange({ ...data, taskIdMeta: v })} placeholder="canary_python_profile_dual_fact" />
+            </div>
+            <div>
+              <Label>External ID (optional)</Label>
+              <Input value={data.externalId} onChange={(v) => onChange({ ...data, externalId: v })} placeholder="0001" />
+            </div>
+            <div>
+              <Label>Difficulty (optional)</Label>
+              <Input value={data.difficulty} onChange={(v) => onChange({ ...data, difficulty: v })} placeholder="medium" />
+            </div>
+            <div>
+              <Label>Category (optional)</Label>
+              <Input value={data.category} onChange={(v) => onChange({ ...data, category: v })} placeholder="multi_step_extraction" />
+            </div>
+          </div>
+
+          <div>
+            <Label>Success conditions (optional, one per line)</Label>
+            <textarea
+              value={data.successConditionsText}
+              onChange={(e) => onChange({ ...data, successConditionsText: e.target.value })}
+              rows={4}
+              placeholder={"response contains 'foo'\nresponse contains 'bar'"}
+              className="w-full text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3.5 py-2.5 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/40 focus:border-violet-400 transition-all resize-none"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Max steps (optional)</Label>
+              <Input value={data.maxSteps} onChange={(v) => onChange({ ...data, maxSteps: v })} placeholder="20" type="number" />
+            </div>
+            <div>
+              <Label>Timeout sec (optional)</Label>
+              <Input value={data.timeoutSec} onChange={(v) => onChange({ ...data, timeoutSec: v })} placeholder="180" type="number" />
+            </div>
+            <div>
+              <Label>Max attempts (optional)</Label>
+              <Input value={data.maxAttempts} onChange={(v) => onChange({ ...data, maxAttempts: v })} placeholder="2" type="number" />
+            </div>
+            <div>
+              <Label>Retry delay sec (optional)</Label>
+              <Input value={data.retryDelaySec} onChange={(v) => onChange({ ...data, retryDelaySec: v })} placeholder="2.0" type="number" />
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-3.5 py-2.5">
+            <label className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+              <input
+                type="checkbox"
+                checked={data.retryTransientOnly}
+                onChange={(e) => onChange({ ...data, retryTransientOnly: e.target.checked })}
+                className="accent-violet-600"
+              />
+              Retry transient errors only
+            </label>
+          </div>
+        </>
       )}
 
       <div className="pt-2 flex justify-end">
@@ -570,15 +759,45 @@ function Step4Review({
     .map((id) => TOOL_CONFIGS.find((t) => t.id === id)?.label ?? id)
     .join(", ");
   const totalRuns = step2.models.length * step3.toolConfigs.length * step2.group;
+  const isSimpleMode = step1.taskMode === "simple";
+  const successConditions = parseSuccessConditions(step1.successConditionsText);
 
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-5 divide-y divide-slate-100 dark:divide-slate-800">
         <ReviewRow label="Name" value={step1.name} />
-        <ReviewRow label="URL" value={<span className="font-mono text-xs break-all">{step1.taskUrl}</span>} />
-        <ReviewRow label="Goal" value={<span className="text-xs leading-relaxed text-right max-w-xs">{step1.taskGoal}</span>} />
-        {step1.expected && <ReviewRow label="Expected answer" value={step1.expected} />}
-        <ReviewRow label="Compare mode" value={step1.compareMode} />
+        <ReviewRow label="Task mode" value={isSimpleMode ? "simple (compatibility)" : "advanced (scenario)"} />
+        {isSimpleMode ? (
+          <>
+            <ReviewRow label="URL" value={<span className="font-mono text-xs break-all">{step1.taskUrl}</span>} />
+            <ReviewRow label="Goal" value={<span className="text-xs leading-relaxed text-right max-w-xs">{step1.taskGoal}</span>} />
+            {step1.expected && <ReviewRow label="Expected answer" value={step1.expected} />}
+            <ReviewRow label="Compare mode" value={step1.compareMode} />
+          </>
+        ) : (
+          <>
+            <ReviewRow label="Scenario" value={step1.scenario} />
+            <ReviewRow
+              label="Scenario args"
+              value={<span className="font-mono text-xs leading-relaxed text-right max-w-xs break-words">{step1.scenarioArgsText}</span>}
+            />
+            {step1.taskIdMeta && <ReviewRow label="Task ID" value={step1.taskIdMeta} />}
+            {step1.externalId && <ReviewRow label="External ID" value={step1.externalId} />}
+            {step1.difficulty && <ReviewRow label="Difficulty" value={step1.difficulty} />}
+            {step1.category && <ReviewRow label="Category" value={step1.category} />}
+            {successConditions.length > 0 && (
+              <ReviewRow
+                label="Success conditions"
+                value={<span className="text-xs leading-relaxed text-right max-w-xs">{successConditions.join(" | ")}</span>}
+              />
+            )}
+            {step1.maxSteps && <ReviewRow label="Max steps" value={step1.maxSteps} />}
+            {step1.timeoutSec && <ReviewRow label="Timeout sec" value={step1.timeoutSec} />}
+            {step1.maxAttempts && <ReviewRow label="Max attempts" value={step1.maxAttempts} />}
+            {step1.retryDelaySec && <ReviewRow label="Retry delay sec" value={step1.retryDelaySec} />}
+            <ReviewRow label="Retry transient only" value={step1.retryTransientOnly ? "true" : "false"} />
+          </>
+        )}
         <ReviewRow label="Models" value={selectedModelLabels} />
         <ReviewRow label="Tool configs" value={selectedToolLabels} />
         <ReviewRow
@@ -662,11 +881,33 @@ function NewExperimentPageInner() {
 
   const [step1, setStep1] = useState<Step1>({
     name: "",
+    taskMode: "simple",
     selectedTaskId: null,
     taskUrl: "",
     taskGoal: "",
     expected: "",
     compareMode: "contains",
+    scenario: "answer",
+    scenarioArgsText: JSON.stringify(
+      {
+        url: "",
+        prompt: "",
+        expected: "",
+        compare_mode: "contains",
+      },
+      null,
+      2
+    ),
+    taskIdMeta: "",
+    externalId: "",
+    difficulty: "",
+    category: "",
+    successConditionsText: "",
+    maxSteps: "",
+    timeoutSec: "",
+    maxAttempts: "",
+    retryDelaySec: "",
+    retryTransientOnly: true,
   });
 
   const [step2, setStep2] = useState<Step2>({
@@ -690,11 +931,33 @@ function NewExperimentPageInner() {
 
     setStep1({
       name: `${sourceExperiment.name} (copy)`,
+      taskMode: "simple",
       selectedTaskId: sourceExperiment.taskId ?? null,
       taskUrl: sourceExperiment.taskUrl,
       taskGoal: sourceExperiment.taskGoal,
       expected: expectedText,
       compareMode: "contains",
+      scenario: "answer",
+      scenarioArgsText: JSON.stringify(
+        {
+          url: sourceExperiment.taskUrl,
+          prompt: sourceExperiment.taskGoal,
+          expected: expectedText,
+          compare_mode: "contains",
+        },
+        null,
+        2
+      ),
+      taskIdMeta: "",
+      externalId: "",
+      difficulty: "",
+      category: "",
+      successConditionsText: (sourceExperiment.successConditions ?? []).join("\n"),
+      maxSteps: "",
+      timeoutSec: "",
+      maxAttempts: "",
+      retryDelaySec: "",
+      retryTransientOnly: true,
     });
     setStep2({ models: models.length > 0 ? models : ["gpt-4o"], group: 3 });
     setStep3({ toolConfigs: toolConfigs.length > 0 ? toolConfigs : ["full"] });
@@ -708,10 +971,26 @@ function NewExperimentPageInner() {
         step3.toolConfigs.map((toolConfig) => ({ model, tool_config: toolConfig }))
       );
 
+      const isSimpleMode = step1.taskMode === "simple";
+      let scenarioArgsFromAdvanced: Record<string, unknown> | null = null;
+      if (!isSimpleMode) {
+        try {
+          const parsed = JSON.parse(step1.scenarioArgsText);
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+            throw new Error("Scenario args must be a JSON object");
+          }
+          scenarioArgsFromAdvanced = parsed as Record<string, unknown>;
+        } catch (jsonErr) {
+          throw new Error(
+            `Invalid scenario args JSON: ${jsonErr instanceof Error ? jsonErr.message : String(jsonErr)}`
+          );
+        }
+      }
+
       let taskId: Id<"tasks"> | undefined;
-      if (step1.selectedTaskId) {
+      if (isSimpleMode && step1.selectedTaskId) {
         taskId = step1.selectedTaskId as Id<"tasks">;
-      } else {
+      } else if (isSimpleMode) {
         taskId = await createTask({
           name: step1.name,
           url: step1.taskUrl,
@@ -721,11 +1000,28 @@ function NewExperimentPageInner() {
         });
       }
 
+      const successConditions = isSimpleMode
+        ? step1.expected
+          ? [`Answer contains "${step1.expected}"`]
+          : []
+        : parseSuccessConditions(step1.successConditionsText);
+
+      const derivedTaskUrl = isSimpleMode
+        ? step1.taskUrl
+        : typeof scenarioArgsFromAdvanced?.url === "string"
+        ? scenarioArgsFromAdvanced.url
+        : "";
+      const derivedTaskGoal = isSimpleMode
+        ? step1.taskGoal
+        : typeof scenarioArgsFromAdvanced?.prompt === "string"
+        ? scenarioArgsFromAdvanced.prompt
+        : `Scenario: ${step1.scenario}`;
+
       const experimentId = await createExperiment({
         name: step1.name,
-        taskGoal: step1.taskGoal,
-        taskUrl: step1.taskUrl,
-        successConditions: step1.expected ? [`Answer contains "${step1.expected}"`] : [],
+        taskGoal: derivedTaskGoal,
+        taskUrl: derivedTaskUrl,
+        successConditions,
         taskId,
       });
 
@@ -745,12 +1041,27 @@ function NewExperimentPageInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           experiment_id: experimentId,
-          task: {
-            url: step1.taskUrl,
-            prompt: step1.taskGoal,
-            expected: step1.expected || undefined,
-            compare_mode: step1.compareMode,
-          },
+          task: isSimpleMode
+            ? {
+                url: step1.taskUrl,
+                prompt: step1.taskGoal,
+                expected: step1.expected || undefined,
+                compare_mode: step1.compareMode,
+              }
+            : {
+                scenario: step1.scenario,
+                scenarioArgs: scenarioArgsFromAdvanced,
+                taskId: step1.taskIdMeta || undefined,
+                externalId: step1.externalId || undefined,
+                difficulty: step1.difficulty || undefined,
+                category: step1.category || undefined,
+                successConditions: successConditions.length > 0 ? successConditions : undefined,
+                maxSteps: parseOptionalInt(step1.maxSteps),
+                timeoutSec: parseOptionalInt(step1.timeoutSec),
+                maxAttempts: parseOptionalInt(step1.maxAttempts),
+                retryDelaySec: parseOptionalFloat(step1.retryDelaySec),
+                retryTransientOnly: step1.retryTransientOnly,
+              },
           variant_specs: variantSpecs,
           group: step2.group,
         }),

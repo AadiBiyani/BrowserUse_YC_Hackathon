@@ -7,6 +7,7 @@ import os
 import json
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +46,7 @@ DOWNLOAD_ROOT = Path(os.getenv("BROWSER_USE_DOWNLOAD_ROOT", "/tmp/browser-use-hu
 FILE_ROOT = Path(os.getenv("BROWSER_USE_FILE_ROOT", "/tmp/browser-use-hud/files"))
 EXTRACTION_MODEL = os.getenv("BROWSER_USE_EXTRACTION_MODEL", "gpt-4o-mini")
 EXTRACTION_BASE_URL = (os.getenv("BROWSER_USE_EXTRACTION_BASE_URL") or settings.hud_gateway_url).strip()
+SUCCESS_THRESHOLD_DEFAULT = 0.5
 
 
 class Runtime(BaseModel):
@@ -246,6 +248,211 @@ def compare_answers(actual: Any, expected: Any, mode: str = "exact") -> float:
     return 0.0
 
 
+def _to_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_weight(value: Any, default: float = 1.0) -> float:
+    try:
+        weight = float(value)
+        return max(0.0, weight)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_reward(value: Any, default: float = 0.0) -> float:
+    raw = _to_float(value)
+    if raw is None:
+        raw = default
+    return max(0.0, min(1.0, float(raw)))
+
+
+def _resolve_success_threshold(value: Any) -> float:
+    threshold = _to_float(value)
+    if threshold is None:
+        return SUCCESS_THRESHOLD_DEFAULT
+    return _coerce_reward(threshold, default=SUCCESS_THRESHOLD_DEFAULT)
+
+
+def _extract_step_answers(agent_answer: str) -> list[str]:
+    answer = (agent_answer or "").strip()
+    if not answer:
+        return []
+
+    try:
+        parsed = json.loads(answer)
+        if isinstance(parsed, dict):
+            steps = parsed.get("steps")
+            if isinstance(steps, list):
+                return [str(step).strip() for step in steps if str(step).strip()]
+        elif isinstance(parsed, list):
+            return [str(step).strip() for step in parsed if str(step).strip()]
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    parsed_steps: dict[int, str] = {}
+    for match in re.finditer(r"(?im)^step\s*(\d+)\s*[:\-]\s*(.+)$", answer):
+        idx = int(match.group(1))
+        parsed_steps[idx] = match.group(2).strip()
+    if parsed_steps:
+        return [parsed_steps[i] for i in sorted(parsed_steps)]
+
+    return []
+
+
+def _resolve_criterion_actual(
+    source: str,
+    agent_answer: str,
+    step_answers: list[str],
+    step_index: int,
+    final_state: dict[str, str],
+) -> Any:
+    source_norm = source.strip().lower()
+    if source_norm == "final_url":
+        return final_state.get("url", "")
+    if source_norm == "final_title":
+        return final_state.get("title", "")
+    if source_norm == "step_answer":
+        if 0 <= step_index < len(step_answers):
+            return step_answers[step_index]
+        return ""
+    return agent_answer
+
+
+def _evaluate_weighted_criteria(
+    criteria: list[dict[str, Any]],
+    agent_answer: str,
+    final_state: dict[str, str],
+) -> float:
+    if not criteria:
+        return 0.0
+
+    step_answers = _extract_step_answers(agent_answer)
+    total_weight = 0.0
+    weighted_score = 0.0
+
+    for idx, criterion in enumerate(criteria):
+        weight = _coerce_weight(criterion.get("weight"), default=1.0)
+        if weight <= 0:
+            continue
+
+        criterion_score = _to_float(criterion.get("score"))
+        if criterion_score is None:
+            expected = criterion.get("expected")
+            if expected is None:
+                continue
+            source = str(criterion.get("source", "agent_answer"))
+            mode = str(criterion.get("compare_mode", "exact"))
+            actual = _resolve_criterion_actual(source, agent_answer, step_answers, idx, final_state)
+            criterion_score = compare_answers(actual, expected, mode)
+
+        score = _coerce_reward(criterion_score, default=0.0)
+
+        total_weight += weight
+        weighted_score += score * weight
+
+    if total_weight <= 0:
+        return 0.0
+    return weighted_score / total_weight
+
+
+def _estimate_steps_from_state(final_state: dict[str, str], fallback: int = 1) -> int:
+    text = final_state.get("history_text", "")
+    if text:
+        nums = re.findall(r"\d+", text)
+        if nums:
+            try:
+                return max(1, int(nums[0]) - 1)
+            except (TypeError, ValueError):
+                pass
+    return max(1, fallback)
+
+
+def _resolve_limits(
+    max_steps: int | None,
+    timeout_sec: int | None,
+    maxSteps: int | None,
+    timeoutSec: int | None,
+) -> tuple[int | None, int | None]:
+    resolved_steps = _to_int(max_steps)
+    if resolved_steps is None:
+        resolved_steps = _to_int(maxSteps)
+    if resolved_steps is not None:
+        resolved_steps = max(1, resolved_steps)
+
+    resolved_timeout = _to_int(timeout_sec)
+    if resolved_timeout is None:
+        resolved_timeout = _to_int(timeoutSec)
+    if resolved_timeout is not None:
+        resolved_timeout = max(1, resolved_timeout)
+
+    return resolved_steps, resolved_timeout
+
+
+def _apply_termination_controls(
+    reward: float,
+    step_count: int,
+    elapsed_sec: float,
+    max_steps_limit: int | None,
+    timeout_limit: int | None,
+) -> float:
+    if max_steps_limit is not None and step_count > max_steps_limit:
+        logger.info(
+            "Termination control triggered: steps=%s exceeds maxSteps=%s",
+            step_count,
+            max_steps_limit,
+        )
+        return 0.0
+    if timeout_limit is not None and elapsed_sec > timeout_limit:
+        logger.info(
+            "Termination control triggered: elapsed=%.2fs exceeds timeoutSec=%s",
+            elapsed_sec,
+            timeout_limit,
+        )
+        return 0.0
+    return max(0.0, min(1.0, float(reward)))
+
+
+async def _collect_final_state() -> dict[str, str]:
+    final_state: dict[str, str] = {"url": "", "title": "", "history_text": ""}
+    runtime = RUNTIME
+    if runtime is None:
+        return final_state
+
+    try:
+        state = await runtime.session.get_browser_state_summary(
+            include_screenshot=False,
+            include_recent_events=False,
+        )
+        final_state["url"] = (state.url or "").strip()
+        final_state["title"] = (state.title or "").strip()
+    except Exception as e:
+        logger.warning("Could not collect browser summary: %s", e)
+
+    try:
+        hist = await call_action("evaluate", {"code": "window.history.length"})
+        if hist.get("ok"):
+            final_state["history_text"] = str((hist.get("result") or {}).get("extracted_content", ""))
+    except Exception as e:
+        logger.warning("Could not estimate step count from history: %s", e)
+
+    return final_state
+
+
 async def render_harness_prompt(task: str) -> str:
     runtime = RUNTIME
     if runtime is None:
@@ -276,7 +483,13 @@ async def answer(
     prompt: str,
     expected: Any | None = None,
     compare_mode: str = "exact",
+    criteria: list[dict[str, Any]] | None = None,
+    success_threshold: float | None = None,
     allowed_tools: list[str] | None = None,
+    max_steps: int | None = None,
+    timeout_sec: int | None = None,
+    maxSteps: int | None = None,
+    timeoutSec: int | None = None,
 ) -> Any:
     """Generic browser task returning an answer.
 
@@ -287,6 +500,7 @@ async def answer(
     """
     global ALLOWED_TOOLS
     ALLOWED_TOOLS = set(allowed_tools) if allowed_tools is not None else None
+    resolved_max_steps, resolved_timeout = _resolve_limits(max_steps, timeout_sec, maxSteps, timeoutSec)
 
     setup = await start_session(start_url=url)
     if not setup.get("ok"):
@@ -296,16 +510,205 @@ async def answer(
         return
 
     agent_answer = ""
+    final_state: dict[str, str] = {"url": "", "title": "", "history_text": ""}
+    step_count = 1
+    started_at = time.monotonic()
+    elapsed_sec = 0.0
     try:
         agent_answer = yield await render_harness_prompt(prompt)
+        elapsed_sec = max(0.0, time.monotonic() - started_at)
+        final_state = await _collect_final_state()
+        step_count = _estimate_steps_from_state(final_state, fallback=1)
     finally:
         ALLOWED_TOOLS = None
         await stop_session(force=True)
 
-    if expected is None:
-        yield 1.0
+    if isinstance(criteria, list) and criteria:
+        reward = _evaluate_weighted_criteria(criteria, agent_answer, final_state)
+    elif expected is None:
+        reward = 1.0
+    else:
+        reward = compare_answers(agent_answer, expected, compare_mode)
+
+    reward = _apply_termination_controls(
+        reward=reward,
+        step_count=step_count,
+        elapsed_sec=elapsed_sec,
+        max_steps_limit=resolved_max_steps,
+        timeout_limit=resolved_timeout,
+    )
+    threshold = _resolve_success_threshold(success_threshold)
+    logger.debug("answer reward=%.3f threshold=%.3f", reward, threshold)
+    yield reward
+
+
+@env.scenario("multi_step")
+async def multi_step(
+    url: str,
+    prompt: str,
+    checkpoints: list[dict[str, Any]],
+    allowed_tools: list[str] | None = None,
+    max_steps: int | None = None,
+    timeout_sec: int | None = None,
+    maxSteps: int | None = None,
+    timeoutSec: int | None = None,
+) -> Any:
+    """Scenario with ordered checkpoints and partial-credit scoring."""
+    global ALLOWED_TOOLS
+    ALLOWED_TOOLS = set(allowed_tools) if allowed_tools is not None else None
+
+    resolved_max_steps, resolved_timeout = _resolve_limits(max_steps, timeout_sec, maxSteps, timeoutSec)
+    checkpoint_lines = [
+        f"{idx + 1}. {cp.get('description') or cp.get('expected') or 'Complete checkpoint'}"
+        for idx, cp in enumerate(checkpoints or [])
+    ]
+    limits = []
+    if resolved_max_steps is not None:
+        limits.append(f"max browser steps: {resolved_max_steps}")
+    if resolved_timeout is not None:
+        limits.append(f"time limit: {resolved_timeout}s")
+    limits_text = f"\nTermination controls: {', '.join(limits)}." if limits else ""
+
+    scenario_prompt = (
+        f"{prompt}\n\n"
+        "Complete the checkpoints in order. "
+        "In your final response, include one line per checkpoint in this format: "
+        "'Step N: <result>' so progress can be validated.\n\n"
+        f"Checkpoints:\n" + ("\n".join(checkpoint_lines) if checkpoint_lines else "- Follow the task prompt.") + limits_text
+    )
+
+    setup = await start_session(start_url=url)
+    if not setup.get("ok"):
+        ALLOWED_TOOLS = None
+        _ = yield f"Browser session setup failed: {setup.get('error')}\nRespond with a brief failure message."
+        yield 0.0
         return
-    yield compare_answers(agent_answer, expected, compare_mode)
+
+    agent_answer = ""
+    final_state: dict[str, str] = {"url": "", "title": "", "history_text": ""}
+    step_count = 1
+    started_at = time.monotonic()
+    elapsed_sec = 0.0
+    try:
+        agent_answer = yield await render_harness_prompt(scenario_prompt)
+        elapsed_sec = max(0.0, time.monotonic() - started_at)
+        final_state = await _collect_final_state()
+        step_count = _estimate_steps_from_state(final_state, fallback=1)
+    finally:
+        ALLOWED_TOOLS = None
+        await stop_session(force=True)
+
+    criteria = checkpoints or []
+    reward = _evaluate_weighted_criteria(criteria, agent_answer, final_state)
+    reward = _apply_termination_controls(
+        reward=reward,
+        step_count=step_count,
+        elapsed_sec=elapsed_sec,
+        max_steps_limit=resolved_max_steps,
+        timeout_limit=resolved_timeout,
+    )
+    yield reward
+
+
+@env.scenario("branching_goal")
+async def branching_goal(
+    url: str,
+    prompt: str,
+    branches: list[dict[str, Any]],
+    allowed_tools: list[str] | None = None,
+    max_steps: int | None = None,
+    timeout_sec: int | None = None,
+    maxSteps: int | None = None,
+    timeoutSec: int | None = None,
+) -> Any:
+    """Scenario with multiple valid completion branches and weighted branch scoring."""
+    global ALLOWED_TOOLS
+    ALLOWED_TOOLS = set(allowed_tools) if allowed_tools is not None else None
+
+    resolved_max_steps, resolved_timeout = _resolve_limits(max_steps, timeout_sec, maxSteps, timeoutSec)
+    branch_lines = []
+    for idx, branch in enumerate(branches or []):
+        name = str(branch.get("name", f"Branch {idx + 1}"))
+        description = str(branch.get("description", ""))
+        line = f"{idx + 1}. {name}"
+        if description:
+            line += f" - {description}"
+        branch_lines.append(line)
+
+    limits = []
+    if resolved_max_steps is not None:
+        limits.append(f"max browser steps: {resolved_max_steps}")
+    if resolved_timeout is not None:
+        limits.append(f"time limit: {resolved_timeout}s")
+    limits_text = f"\nTermination controls: {', '.join(limits)}." if limits else ""
+
+    scenario_prompt = (
+        f"{prompt}\n\n"
+        "You may solve this task through any valid branch below. "
+        "In your final response, clearly explain which branch you completed and provide supporting evidence."
+        "\n\nValid branches:\n"
+        + ("\n".join(branch_lines) if branch_lines else "- Complete the task using any valid approach.")
+        + limits_text
+    )
+
+    setup = await start_session(start_url=url)
+    if not setup.get("ok"):
+        ALLOWED_TOOLS = None
+        _ = yield f"Browser session setup failed: {setup.get('error')}\nRespond with a brief failure message."
+        yield 0.0
+        return
+
+    agent_answer = ""
+    final_state: dict[str, str] = {"url": "", "title": "", "history_text": ""}
+    step_count = 1
+    started_at = time.monotonic()
+    elapsed_sec = 0.0
+    try:
+        agent_answer = yield await render_harness_prompt(scenario_prompt)
+        elapsed_sec = max(0.0, time.monotonic() - started_at)
+        final_state = await _collect_final_state()
+        step_count = _estimate_steps_from_state(final_state, fallback=1)
+    finally:
+        ALLOWED_TOOLS = None
+        await stop_session(force=True)
+
+    best_branch_score = 0.0
+    total_branch_weight = 0.0
+    weighted_branch_score = 0.0
+    for idx, branch in enumerate(branches or []):
+        branch_weight = _coerce_weight(branch.get("weight"), default=1.0)
+        criteria = branch.get("criteria") if isinstance(branch.get("criteria"), list) else []
+        if not criteria:
+            expected = branch.get("expected")
+            if expected is not None:
+                criteria = [
+                    {
+                        "expected": expected,
+                        "compare_mode": branch.get("compare_mode", "exact"),
+                        "source": branch.get("source", "agent_answer"),
+                        "weight": 1.0,
+                    }
+                ]
+        branch_score = _evaluate_weighted_criteria(criteria, agent_answer, final_state)
+        logger.debug("Branch %s score=%.3f", branch.get("name", idx + 1), branch_score)
+
+        best_branch_score = max(best_branch_score, branch_score)
+        if branch_weight > 0:
+            total_branch_weight += branch_weight
+            weighted_branch_score += branch_score * branch_weight
+
+    reward = best_branch_score
+    if total_branch_weight > 0:
+        reward = max(best_branch_score, weighted_branch_score / total_branch_weight)
+
+    reward = _apply_termination_controls(
+        reward=reward,
+        step_count=step_count,
+        elapsed_sec=elapsed_sec,
+        max_steps_limit=resolved_max_steps,
+        timeout_limit=resolved_timeout,
+    )
+    yield reward
 
 
 @env.scenario("wiki-game")

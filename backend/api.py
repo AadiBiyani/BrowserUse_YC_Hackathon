@@ -28,6 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from query_engine import answer_query
+from task_payload import normalize_task_payload
 
 CONVEX_URL = os.getenv("CONVEX_URL", "")
 
@@ -62,7 +63,7 @@ class QueryResponse(BaseModel):
 
 class RunExperimentRequest(BaseModel):
     experiment_id: str
-    task: dict                  # {url, prompt, expected?, compare_mode?}
+    task: dict                  # legacy or normalized scenario payload
     variant_specs: list[dict]   # [{model, tool_config}, ...]
     group: int = 3
 
@@ -111,8 +112,10 @@ async def run_experiment_endpoint(req: RunExperimentRequest):
     """
     if not req.variant_specs:
         raise HTTPException(status_code=400, detail="at least one variant_spec is required")
-    if not req.task.get("url") or not req.task.get("prompt"):
-        raise HTTPException(status_code=400, detail="task must include url and prompt")
+    try:
+        normalized_task = normalize_task_payload(req.task)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
         from experiment_runner import run_experiment
@@ -124,7 +127,7 @@ async def run_experiment_endpoint(req: RunExperimentRequest):
     asyncio.create_task(
         run_experiment(
             experiment_id=req.experiment_id,
-            task_config=req.task,
+            task_config=normalized_task,
             variant_specs=req.variant_specs,
             group=req.group,
         )

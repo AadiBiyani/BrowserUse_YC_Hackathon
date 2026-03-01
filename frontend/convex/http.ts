@@ -45,6 +45,14 @@ http.route({
       typeof body.environment_total_runtime_seconds === "number"
         ? body.environment_total_runtime_seconds
         : null;
+    const scenario = typeof body.scenario === "string" ? body.scenario : undefined;
+    const taskId = typeof body.task_id === "string" ? body.task_id : undefined;
+    const externalId = typeof body.external_id === "string" ? body.external_id : undefined;
+    const difficulty = typeof body.difficulty === "string" ? body.difficulty : undefined;
+    const category = typeof body.category === "string" ? body.category : undefined;
+    const attempt = typeof body.attempt === "number" ? body.attempt : undefined;
+    const maxAttempts =
+      typeof body.max_attempts === "number" ? body.max_attempts : undefined;
 
     const totalLatencyMs = runtimeSeconds != null ? runtimeSeconds * 1000 : 300_000;
     const success = reward >= 0.5;
@@ -108,6 +116,14 @@ http.route({
       variantId: variant!._id,
       experimentId: experiment!._id,
       hudTraceId: traceId,
+      externalId,
+      taskId,
+      scenario,
+      difficulty,
+      category,
+      attempt,
+      maxAttempts,
+      reward,
       totalSteps: agentSteps,
       totalTokens: totalInputTokens + totalOutputTokens,
       totalCostUsd: totalCost,

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -32,6 +33,7 @@ HUB_ENV = "replaybench-browser-env"  # deployed at hud.ai/environments/36bee7f9-
 
 MODELS = ["gpt-4o", "claude-sonnet-4-5", "gemini-2.0-flash"]
 GROUP = 3  # runs per model → 9 total
+SUCCESS_REWARD_THRESHOLD = float(os.getenv("SUCCESS_REWARD_THRESHOLD", "0.5"))
 
 # Task: fill httpbin form — deterministic, no auth, 3 verifiable fields
 TASK_URL = "https://httpbin.org/forms/post"
@@ -76,7 +78,7 @@ async def main() -> None:
     for r in ctx.results:
         model_name = r.variants.get("model", "unknown")
         reward = r.reward or 0.0
-        status = "✓" if reward >= 1.0 else "✗"
+        status = "✓" if reward >= SUCCESS_REWARD_THRESHOLD else "✗"
         err = f"  err={r.error}" if r.error else ""
         print(f"  {status}  {model_name:38s}  reward={reward}  trace={r.trace_id}{err}")
         results_log.append({
@@ -96,7 +98,7 @@ async def main() -> None:
         by_model.setdefault(entry["model"], []).append(entry["reward"])
     for model_name, rewards in by_model.items():
         avg = sum(rewards) / len(rewards)
-        passed = sum(1 for v in rewards if v >= 1.0)
+        passed = sum(1 for v in rewards if v >= SUCCESS_REWARD_THRESHOLD)
         print(f"  {model_name:38s}  avg={avg:.2f}  passed={passed}/{len(rewards)}")
 
     # ── Save ───────────────────────────────────────────────────────────────
@@ -121,7 +123,7 @@ async def main() -> None:
 
     # ── Sanity check ───────────────────────────────────────────────────────
 
-    passed = sum(1 for r in results_log if r["reward"] >= 1.0)
+    passed = sum(1 for r in results_log if r["reward"] >= SUCCESS_REWARD_THRESHOLD)
     failed = len(results_log) - passed
     if passed >= 1 and failed >= 1:
         print(f"[hud_runner] ✓ Demo data looks good: {passed} passed, {failed} failed")

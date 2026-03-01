@@ -36,6 +36,14 @@ export default defineSchema({
     variantId: v.id("variants"),
     experimentId: v.id("experiments"),
     hudTraceId: v.optional(v.string()),
+    externalId: v.optional(v.string()),
+    taskId: v.optional(v.string()),
+    scenario: v.optional(v.string()),
+    difficulty: v.optional(v.string()),
+    category: v.optional(v.string()),
+    attempt: v.optional(v.number()),
+    maxAttempts: v.optional(v.number()),
+    reward: v.optional(v.number()),
     totalSteps: v.number(),
     totalTokens: v.number(),
     totalCostUsd: v.number(),
@@ -48,6 +56,8 @@ export default defineSchema({
   })
     .index("by_experiment", ["experimentId"])
     .index("by_variant", ["variantId"])
+    .index("by_experiment_scenario", ["experimentId", "scenario"])
+    .index("by_experiment_task", ["experimentId", "taskId"])
     .index("by_trace", ["hudTraceId"]),
 
   qaAnalyzerRuns: defineTable({

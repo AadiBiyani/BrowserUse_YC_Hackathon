@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from typing import Any
 
 import httpx
 from dotenv import load_dotenv
@@ -42,6 +43,56 @@ TOOL_PRESETS: dict[str, list[str] | None] = {
     "full":            None,
     "navigation_only": ["navigate", "click", "input", "extract"],
 }
+
+
+def _coerce_int(value: Any, default: int, *, minimum: int = 1) -> int:
+    """Coerce a config value to int with bounds and fallback."""
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, parsed)
+
+
+def _coerce_float(value: Any, default: float, *, minimum: float = 0.0) -> float:
+    """Coerce a config value to float with bounds and fallback."""
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, parsed)
+
+
+def _coerce_bool(value: Any, default: bool) -> bool:
+    """Best-effort bool parsing for config values."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        if value.strip().lower() in {"true", "1", "yes", "y", "on"}:
+            return True
+        if value.strip().lower() in {"false", "0", "no", "n", "off"}:
+            return False
+    return default
+
+
+def _is_transient_eval_error(exc: Exception) -> bool:
+    """Heuristic for transient HUD eval errors worth retrying."""
+    if isinstance(exc, (httpx.TimeoutException, httpx.NetworkError, asyncio.TimeoutError)):
+        return True
+    text = str(exc).lower()
+    transient_markers = (
+        "timeout",
+        "temporar",
+        "connection reset",
+        "connection aborted",
+        "broken pipe",
+        "rate limit",
+        "429",
+        "503",
+        "gateway",
+        "unavailable",
+    )
+    return any(marker in text for marker in transient_markers)
 
 
 async def _convex_mutation(path: str, args: dict) -> None:
@@ -100,7 +151,13 @@ async def run_experiment(
 
     Args:
         experiment_id: Convex experiment ID (created by the frontend wizard)
-        task_config:   {url, prompt, expected?, compare_mode?}
+        task_config:   {
+                         scenario: str,
+                         scenarioArgs: dict,
+                         ...optional metadata:
+                           taskId/externalId/difficulty/category/successConditions
+                           maxAttempts/retryDelaySec/retryTransientOnly
+                       }
         variant_specs: List of {model, tool_config} dicts defining all combinations to run
         group:         Number of runs per variant
     """
@@ -120,38 +177,88 @@ async def run_experiment(
         model = spec["model"]
         tool_config = spec.get("tool_config", "full")
         allowed_tools = TOOL_PRESETS.get(tool_config)
+        scenario = task_config["scenario"]
+        scenario_args = dict(task_config.get("scenarioArgs") or {})
+        scenario_args["allowed_tools"] = allowed_tools
+        max_attempts = _coerce_int(task_config.get("maxAttempts"), 1, minimum=1)
+        retry_delay_sec = _coerce_float(task_config.get("retryDelaySec"), 2.0, minimum=0.0)
+        retry_transient_only = _coerce_bool(task_config.get("retryTransientOnly"), True)
+        task_metadata = {
+            "task_id": task_config.get("taskId"),
+            "external_id": task_config.get("externalId"),
+            "difficulty": task_config.get("difficulty"),
+            "category": task_config.get("category"),
+            "success_conditions": task_config.get("successConditions"),
+        }
         logger.info(
-            "[experiment_runner] eval variant model=%s tool_config=%s",
-            model, tool_config,
+            (
+                "[experiment_runner] eval variant model=%s tool_config=%s scenario=%s "
+                "max_attempts=%d retry_transient_only=%s"
+            ),
+            model,
+            tool_config,
+            scenario,
+            max_attempts,
+            retry_transient_only,
         )
 
-        try:
-            env = Environment(HUB_ENV).connect_hub(HUB_ENV)
-            task = env(
-                "answer",
-                url=task_config["url"],
-                prompt=task_config["prompt"],
-                expected=task_config.get("expected"),
-                compare_mode=task_config.get("compare_mode", "contains"),
-                allowed_tools=allowed_tools,
-            )
+        results = []
+        attempt_used = 0
+        last_error: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            attempt_used = attempt
+            try:
+                env = Environment(HUB_ENV).connect_hub(HUB_ENV)
+                task = env(scenario, **scenario_args)
 
-            async with hud.eval(task, variants={"model": [model]}, group=group) as ctx:
-                agent = create_agent(ctx.variants["model"])
-                await agent.run(ctx)
+                async with hud.eval(task, variants={"model": [model]}, group=group) as ctx:
+                    agent = create_agent(ctx.variants["model"])
+                    await agent.run(ctx)
 
-            # ctx.results is populated only when total_evals > 1 (parallel path).
-            # When group=1 (single eval), ctx itself is the result.
-            results = list(ctx.results) if ctx.results else [ctx]
+                # ctx.results is populated only when total_evals > 1 (parallel path).
+                # When group=1 (single eval), ctx itself is the result.
+                results = list(ctx.results) if ctx.results else [ctx]
 
-            logger.info(
-                "[experiment_runner] eval complete model=%s tool_config=%s — %d results",
-                model, tool_config, len(results),
-            )
-        except Exception as exc:
+                logger.info(
+                    (
+                        "[experiment_runner] eval complete model=%s tool_config=%s "
+                        "attempt=%d/%d results=%d"
+                    ),
+                    model,
+                    tool_config,
+                    attempt,
+                    max_attempts,
+                    len(results),
+                )
+                break
+            except Exception as exc:
+                last_error = exc
+                is_transient = _is_transient_eval_error(exc)
+                should_retry = attempt < max_attempts and (is_transient or not retry_transient_only)
+                logger.warning(
+                    (
+                        "[experiment_runner] HUD eval failed model=%s tool_config=%s "
+                        "attempt=%d/%d transient=%s retrying=%s error=%s"
+                    ),
+                    model,
+                    tool_config,
+                    attempt,
+                    max_attempts,
+                    is_transient,
+                    should_retry,
+                    exc,
+                )
+                if should_retry and retry_delay_sec > 0:
+                    await asyncio.sleep(retry_delay_sec)
+                if not should_retry:
+                    break
+
+        if not results:
             logger.error(
-                "[experiment_runner] HUD eval failed model=%s tool_config=%s: %s",
-                model, tool_config, exc,
+                "[experiment_runner] HUD eval exhausted retries model=%s tool_config=%s: %s",
+                model,
+                tool_config,
+                last_error,
             )
             await _update_variant_statuses(experiment_id, [spec], "failure")
             return False
@@ -167,14 +274,27 @@ async def run_experiment(
                     trace_data["model"] = model
                     trace_data["tool_config"] = tool_config
                     trace_data["model_label"] = f"{model}:{tool_config}"
+                    trace_data["scenario"] = scenario
+                    trace_data["attempt"] = attempt_used
+                    trace_data["max_attempts"] = max_attempts
+                    for key, value in task_metadata.items():
+                        if value is not None:
+                            trace_data[key] = value
 
                     await store_raw_mongo(trace_data)
                     await store_supermemory_chunks(trace_data, http_client, extra_spaces=spaces)
                     await store_convex_metrics(trace_data, http_client)
 
                     logger.info(
-                        "[experiment_runner] Ingested trace=%s model=%s tool_config=%s reward=%s",
-                        r.trace_id, model, tool_config, r.reward,
+                        (
+                            "[experiment_runner] Ingested trace=%s model=%s tool_config=%s "
+                            "attempt=%d reward=%s"
+                        ),
+                        r.trace_id,
+                        model,
+                        tool_config,
+                        attempt_used,
+                        r.reward,
                     )
                 except Exception as exc:
                     logger.error(
